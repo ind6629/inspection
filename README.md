@@ -8,7 +8,8 @@ Unity 桌面虚拟机房 → 射线命中放置标记 → HTTP 上报 → Go JSO
 - 注意：本机已有的是 Unity 6.6，未在 6.3 LTS 验证。题目指定 LTS，正式提交前需要在 LTS 编辑器中导入/验证本项目。不要将当前验证结果声称为 LTS 验证。
 - Go：本机 1.27.3，模块最低声明 1.22，无第三方依赖。
 - Node.js：本机 22.14.0。React / React DOM 19、TypeScript 5、Vite 6；精确依赖见 `admin/package-lock.json`，使用 `npm ci` 重现。
-- 所有地址默认用于同一台电脑本地演示。界面中的 Unity UI 使用英文，管理端和文档使用中文。
+- 所有地址默认用于同一台电脑本地演示。Unity 操作说明、表单、按钮、机柜编号、状态和反馈均使用中文，管理端和文档使用中文。
+- Unity 从系统加载 Microsoft YaHei / SimHei / Noto Sans CJK SC 等中文字体，不分发 Windows 字体文件；本机已安装微软雅黑，其他电脑需有上述支持中文的字体之一。
 
 ## 启动
 
@@ -49,13 +50,13 @@ npm run build
 2. 打开 `Assets/Scenes/Inspection.unity`。如果场景缺失，可点击菜单 `Inspection → Create or open demo scene`。
 3. 点击 Play。机房、三个机柜、管线、碰撞体、玩家和表单由 `InspectionApp.cs` 自动创建，无需手动建模或拖引用。
 4. `W/A/S/D` 移动；按住鼠标右键转动视角；左键点击表面创建标记。
-5. 填写 Title、Description、Priority，点击 Submit issue。成功后刷新 React。
-6. Cancel 会删除未保存标记。输入框、按钮、顶部面板和模态表单不会触发新的场景标注。表单打开时暂停移动和转动。
-7. 点击已保存标记查看详情；点击 Reload saved markers 从 Go 恢复标记和最新状态。已解决为绿色，高优先级红色，中优先级橙色，低优先级青色。
+5. 填写问题标题、问题描述和优先级，点击“提交问题”。成功后刷新 React。
+6. “取消填写”会删除未保存标记。输入框、按钮、顶部面板和模态表单不会触发新的场景标注。表单打开时暂停移动和转动。
+7. 点击已保存标记查看详情；点击“刷新已保存的问题标记”从 Go 恢复标记和最新状态。已解决为绿色，高优先级红色，中优先级橙色，低优先级青色。
 
-顶部可修改 Backend 地址。Unity 使用 `Input` 传统输入 API；如果另建工程迁移脚本，需启用 Input Manager 或 Both。层 8 为可点击表面，层 9 为标记。世界布局固定，不要随意移动场景原点后继续使用原数据。
+顶部可修改后端地址。Unity 使用 `Input` 传统输入 API；如果另建工程迁移脚本，需启用 Input Manager 或 Both。层 8 为可点击表面，层 9 为标记。世界布局固定，不要随意移动场景原点后继续使用原数据。
 
-可使用 `ProjectSetup.BuildWindows` 批处理方法生成 `unity/BuildFixed/Inspection.exe`，或使用 Unity Build Profiles。构建目录默认不纳入 Git。`Build/` 是旧版本，用户反馈粉色材质后已修复，请运行 `BuildFixed/` 新版本。
+可使用 `ProjectSetup.BuildWindows` 批处理方法生成 `unity/BuildChinese/Inspection.exe`，或使用 Unity Build Profiles。构建目录默认不纳入 Git。`Build/` 是粉色材质旧版，`BuildFixed/` 是英文修复版，请运行 `BuildChinese/` 中文新版本。
 
 场景材质明确引用 `Resources/SiteSurface.mat` 和项目内置 `SiteSurface.shader`，不依赖运行时 Primitive 的默认材质。可传入 `-inspection-preview <绝对PNG路径>` 在运行两秒后截图，用于实际图形构建检查。
 
@@ -107,7 +108,7 @@ Unity 可选自动集成检查：在运行中的测试后端前启动 Windows �
 - 当前机器 Go 的 race 模式出现系统退出码 `0xc0000139`，未通过 race 环境检查；普通测试正常，不宣称 race 检查通过。
 - 窗口截图自动化连续超时，尚未完成逐项鼠标交互验收；不能把自动集成检查当作人工操作录像。
 - 未完成：LTS 编辑器验证、两段 3～5 分钟演示视频、上传 GitHub/Gitee/网盘获得评审访问链接。当前仅本地交付。
-- 使用轻量 IMGUI，无中文字体美化。标记用球体，以命中点为球心，部分球体会嵌入表面；上传坐标为原始 `hit.point`。
+- 使用轻量 IMGUI 和系统中文字体。标记用球体，以命中点为球心，部分球体会嵌入表面；上传坐标为原始 `hit.point`。
 - 无登录、分页、删除接口或实时推送。修改状态后 Unity 需主动 Reload。
 - 网络超时可能发生在服务端已保存之后：重试前到管理端核实，当前未实现幂等去重；不要连续重试。
 - 不提供跨真实 AR 会话定位，也不支持多进程同时写 JSON。当前用于本地考核演示。

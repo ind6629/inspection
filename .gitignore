@@ -6,6 +6,7 @@ unity/[Ll]ogs/
 unity/[Uu]serSettings/
 unity/Build/
 unity/BuildFixed/
+unity/BuildChinese/
 unity/.vs/
 unity/*.csproj
 unity/*.sln*
