@@ -36,6 +36,14 @@ npm run dev
 
 浏览器访问 `http://localhost:5173`。支持列表、详情、标题搜索、状态筛选、修改状态、网络错误及重试。
 
+管理端新增中文登录页：默认账号 `admin`，首次启动 Go 后随机密码写入 `backend/data/admin-password.txt`，请在本机读取。该文件和业务数据都被 Git 忽略，不打包公开。可通过 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 环境变量配置，密码至少 12 个字符；不要将真实凭据写进源码。密码文件已存在时沿用，不会每次启动变化。
+
+会话为服务端内存记录和 HttpOnly、SameSite=Strict Cookie，有效期 8 小时，刷新页面保留，退出或 Go 重启后失效。登录失败 10 次后在当前一分钟窗口内限制重试。本地 HTTP 下 Cookie 无 Secure 属性，HTTPS 下自动开启；该实现用于本地演示，不包含注册、找回密码、多用户角色或公网部署配套。
+
+新增接口：`POST /api/auth/login`（username/password）、`GET /api/auth/me`、`POST /api/auth/logout`、`GET /api/admin/issues`。管理端列表和状态修改需要登录；Unity 的 `GET/POST /api/issues` 保持开放，保证已有桌面程序仍可恢复标记和提交。这是管理操作权限校验，不是对全部问题数据的访问隔离。浏览器通过 credentials=include 携带 Cookie，并校验管理写操作 Origin。
+
+默认 API 地址自动使用网页当前主机名加 8080 端口，避免 localhost / 127.0.0.1 混用导致 Cookie 不发送。手动设置 VITE_API_BASE_URL 时也请保持主机名一致。
+
 默认后端 `http://localhost:8080`；需要修改时，复制 `.env.example` 为 `.env` 后修改 `VITE_API_BASE_URL`，重新启动 Vite。Go CORS 允许 `http://localhost:5173` 和 `http://127.0.0.1:5173`。端口被占用时会报错，不自动换端口。
 
 ```powershell
@@ -109,7 +117,7 @@ Unity 可选自动集成检查：在运行中的测试后端前启动 Windows �
 - 窗口截图自动化连续超时，尚未完成逐项鼠标交互验收；不能把自动集成检查当作人工操作录像。
 - 未完成：LTS 编辑器验证、两段 3～5 分钟演示视频、上传 GitHub/Gitee/网盘获得评审访问链接。当前仅本地交付。
 - 使用轻量 IMGUI 和系统中文字体。标记用球体，以命中点为球心，部分球体会嵌入表面；上传坐标为原始 `hit.point`。
-- 无登录、分页、删除接口或实时推送。修改状态后 Unity 需主动 Reload。
+- 已提供单管理员登录；尚无分页、删除接口、角色权限或实时推送。修改状态后 Unity 需主动刷新标记。
 - 网络超时可能发生在服务端已保存之后：重试前到管理端核实，当前未实现幂等去重；不要连续重试。
 - 不提供跨真实 AR 会话定位，也不支持多进程同时写 JSON。当前用于本地考核演示。
 

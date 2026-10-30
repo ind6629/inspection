@@ -36,6 +36,7 @@ type Server struct {
 	mu     sync.Mutex
 	path   string
 	issues []Issue
+	auth   *adminAuth
 }
 
 func load(path string) (*Server, error) {
@@ -118,6 +119,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if origin == "http://localhost:5173" || origin == "http://127.0.0.1:5173" {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Vary", "Origin")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
 	}
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -131,6 +133,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.auth != nil && s.auth.handle(w, r, s) {
+		return
+	}
 	if r.URL.Path == "/api/issues" {
 		switch r.Method {
 		case "GET":
@@ -194,6 +199,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fail(w, 405, "method not allowed")
 			return
 		}
+		if s.auth != nil && !s.auth.require(w, r) {
+			return
+		}
 		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/issues/"), "/status")
 		var in struct {
 			Status string `json:"status"`
@@ -230,6 +238,10 @@ func main() {
 		path = "data/issues.json"
 	}
 	s, err := load(path)
+	if err != nil {
+		log.Fatal(err)
+	}
+	s.auth, err = newAdminAuth(filepath.Join(filepath.Dir(path), "admin-password.txt"))
 	if err != nil {
 		log.Fatal(err)
 	}
