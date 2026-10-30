@@ -77,7 +77,7 @@ npm run build
 - `POST /api/inspector/login`：`{"username":"inspector01","password":"<本机密码>"}`，返回 `{token,user:{id,username,displayName},expiresAt}`。会话有效期 8 小时，Go 重启后需要重新登录；退出接口为 `POST /api/inspector/logout`，身份检查为 `GET /api/inspector/me`。
 - 巡检员请求头：`Authorization: Bearer <token>`。创建和读取 `/api/issues` 均需登录；读取仅返回本人数据。巡检员不能调用管理端接口或修改处理状态。管理员仍使用独立 HttpOnly Cookie 会话。
 - 新 Issue 增加只读 `reporter:{id,username,displayName}`。发现人完全由后端登录身份产生；创建请求中传入 reporter 会被拒绝，不能冒充其他用户。姓名按上报时保存快照；旧问题 `reporter=null`，显示“历史记录（未记录发现人）”，不会猜测或伪造原始发现人。
-- React 增加“发现人”列、详情中的账号姓名、按发现人分类卡片及数量统计。零上报的巡检员也显示。点击卡片只查看该用户的问题，可与状态、标题搜索组合。`GET /api/admin/inspectors` 仅管理员可用，只返回 ID/账号/姓名，不返回密码或哈希。
+- React 增加“发现人”列、详情中的账号姓名；在“问题清单”标题旁提供“发现人”下拉框，选择巡检员后筛选列表。零上报的巡检员也在选项中显示，支持全部发现人和历史记录，可与状态、标题搜索组合。`GET /api/admin/inspectors` 仅管理员可用，只返回 ID/账号/姓名，不返回密码或哈希。
 - 当前只预置两位演示巡检员，尚无注册/用户管理页面；如需增加真实人员，可进一步添加管理员账号管理功能。不要公开本机生成的密码文件。
 
 ### 自动集成检查
