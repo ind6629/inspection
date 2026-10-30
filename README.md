@@ -36,7 +36,7 @@ npm run dev
 
 浏览器访问 `http://localhost:5173`。支持列表、详情、标题搜索、状态筛选、修改状态、网络错误及重试。
 
-管理端新增中文登录页：默认账号 `admin`，首次启动 Go 后随机密码写入 `backend/data/admin-password.txt`，请在本机读取。该文件和业务数据都被 Git 忽略，不打包公开。可通过 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 环境变量配置，密码至少 12 个字符；不要将真实凭据写进源码。密码文件已存在时沿用，不会每次启动变化。
+管理端新增中文登录页：默认账号 `admin`，首次启动 Go 后随机密码写入 `backend/data/admin-password.txt`，请在本机读取。该文件和业务数据都被 Git 忽略，不打包公开。可通过 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 环境变量配置，密码至少 6 个字符；不要将真实凭据写进源码。密码文件已存在时沿用，不会每次启动变化。
 
 会话为服务端内存记录和 HttpOnly、SameSite=Strict Cookie，有效期 8 小时，刷新页面保留，退出或 Go 重启后失效。登录失败 10 次后在当前一分钟窗口内限制重试。本地 HTTP 下 Cookie 无 Secure 属性，HTTPS 下自动开启；该实现用于本地演示，不包含注册、找回密码、多用户角色或公网部署配套。
 

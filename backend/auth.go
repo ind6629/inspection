@@ -49,8 +49,8 @@ func newAdminAuth(passwordPath string) (*adminAuth, error) {
 		}
 		fmt.Printf("Admin username: %s; password file: %s (not printed)\n", username, passwordPath)
 	}
-	if len(password) < 12 {
-		return nil, fmt.Errorf("admin password must contain at least 12 characters")
+	if len(password) < 6 {
+		return nil, fmt.Errorf("admin password must contain at least 6 characters")
 	}
 	return &adminAuth{username: username, passwordHash: sha256.Sum256([]byte(password)), sessions: map[string]time.Time{}}, nil
 }
