@@ -55,7 +55,9 @@ npm run build
 
 顶部可修改 Backend 地址。Unity 使用 `Input` 传统输入 API；如果另建工程迁移脚本，需启用 Input Manager 或 Both。层 8 为可点击表面，层 9 为标记。世界布局固定，不要随意移动场景原点后继续使用原数据。
 
-可使用 `ProjectSetup.BuildWindows` 批处理方法生成 `unity/Build/Inspection.exe`，或使用 Unity Build Profiles。构建目录默认不纳入 Git。
+可使用 `ProjectSetup.BuildWindows` 批处理方法生成 `unity/BuildFixed/Inspection.exe`，或使用 Unity Build Profiles。构建目录默认不纳入 Git。`Build/` 是旧版本，用户反馈粉色材质后已修复，请运行 `BuildFixed/` 新版本。
+
+场景材质明确引用 `Resources/SiteSurface.mat` 和项目内置 `SiteSurface.shader`，不依赖运行时 Primitive 的默认材质。可传入 `-inspection-preview <绝对PNG路径>` 在运行两秒后截图，用于实际图形构建检查。
 
 ## 接口约定
 

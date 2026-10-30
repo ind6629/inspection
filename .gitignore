@@ -5,6 +5,7 @@ unity/[Oo]bj/
 unity/[Ll]ogs/
 unity/[Uu]serSettings/
 unity/Build/
+unity/BuildFixed/
 unity/.vs/
 unity/*.csproj
 unity/*.sln*

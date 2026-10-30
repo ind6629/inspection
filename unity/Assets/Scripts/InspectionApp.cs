@@ -28,6 +28,7 @@ public class InspectionApp : MonoBehaviour
     readonly string[] priorities={"low","medium","high"};
     readonly Dictionary<string,InspectionMarker> markers=new Dictionary<string,InspectionMarker>();
     Issue selected;
+    Material surfaceMaterial;
     Rect Header => new Rect(16,16,440,160);
     Rect Modal => new Rect((Screen.width-480)/2f, Mathf.Max(20,(Screen.height-480)/2f),480,480);
 
@@ -36,6 +37,8 @@ public class InspectionApp : MonoBehaviour
 
     void Start()
     {
+        surfaceMaterial=Resources.Load<Material>("SiteSurface");
+        if(surfaceMaterial==null||!surfaceMaterial.shader.isSupported)throw new Exception("SiteSurface material missing or unsupported");
         // Fixed world layout: coordinates remain meaningful between desktop sessions.
         foreach(var camera in FindObjectsByType<Camera>(FindObjectsSortMode.None)) camera.gameObject.SetActive(false);
         RenderSettings.ambientLight=new Color(.64f,.69f,.75f);
@@ -54,8 +57,11 @@ public class InspectionApp : MonoBehaviour
         var cameraObject=new GameObject("Inspection Camera");cameraObject.transform.SetParent(body.transform);cameraObject.transform.localPosition=new Vector3(0,1.65f,0);view=cameraObject.AddComponent<Camera>();view.nearClipPlane=.05f;view.backgroundColor=new Color(.12f,.19f,.25f);view.clearFlags=CameraClearFlags.SolidColor;
         StartCoroutine(Refresh());
         if(Array.IndexOf(Environment.GetCommandLineArgs(),"-inspection-smoke")>=0)StartCoroutine(Smoke());
+        var args=Environment.GetCommandLineArgs();int preview=Array.IndexOf(args,"-inspection-preview");
+        if(preview>=0&&preview+1<args.Length)StartCoroutine(CapturePreview(args[preview+1]));
     }
-    GameObject Box(string name,Vector3 position,Vector3 scale,Color color){var obj=GameObject.CreatePrimitive(PrimitiveType.Cube);obj.name=name;obj.transform.position=position;obj.transform.localScale=scale;obj.layer=8;obj.GetComponent<Renderer>().material.color=color;return obj;}
+    void SetSurface(GameObject obj,Color color){var material=new Material(surfaceMaterial);material.color=color;obj.GetComponent<Renderer>().sharedMaterial=material;}
+    GameObject Box(string name,Vector3 position,Vector3 scale,Color color){var obj=GameObject.CreatePrimitive(PrimitiveType.Cube);obj.name=name;obj.transform.position=position;obj.transform.localScale=scale;obj.layer=8;SetSurface(obj,color);return obj;}
     void Update()
     {
         if(view==null)return;
@@ -76,7 +82,7 @@ public class InspectionApp : MonoBehaviour
         pending=MakeMarker(hit.point,Color.yellow);pending.name="Pending issue";
         formOpen=true;title="";description="";priority=1;
     }
-    GameObject MakeMarker(Vector3 position,Color color){var obj=GameObject.CreatePrimitive(PrimitiveType.Sphere);obj.transform.position=position;obj.transform.localScale=Vector3.one*.22f;obj.layer=9;obj.GetComponent<Renderer>().material.color=color;return obj;}
+    GameObject MakeMarker(Vector3 position,Color color){var obj=GameObject.CreatePrimitive(PrimitiveType.Sphere);obj.transform.position=position;obj.transform.localScale=Vector3.one*.22f;obj.layer=9;SetSurface(obj,color);return obj;}
     Color MarkerColor(Issue issue){return issue.status=="resolved"?Color.green:issue.priority=="high"?new Color(1,.25f,.2f):issue.priority=="medium"?new Color(1,.65f,.1f):Color.cyan;}
     void PutMarker(Issue issue){if(markers.TryGetValue(issue.id,out var marker)){marker.issue=issue;marker.GetComponent<Renderer>().material.color=MarkerColor(issue);return;}var obj=MakeMarker(issue.position.Vector,MarkerColor(issue));obj.name="Issue "+issue.id;marker=obj.AddComponent<InspectionMarker>();marker.issue=issue;markers.Add(issue.id,marker);}
     void OnGUI()
@@ -114,6 +120,7 @@ public class InspectionApp : MonoBehaviour
             else{message="Submit failed: "+request.error+". Check admin before retrying.";try{var err=JsonUtility.FromJson<ApiError>(request.downloadHandler.text);if(err?.error!=null)message=err.error.message;}catch(Exception){}}
         }submitting=false;
     }
+    IEnumerator CapturePreview(string path){yield return new WaitForSeconds(2);yield return new WaitForEndOfFrame();ScreenCapture.CaptureScreenshot(path);Debug.Log("INSPECTION_PREVIEW_REQUESTED");}
     // Opt-in integration check for CI/local validation; never runs in normal play.
     IEnumerator Smoke()
     {
