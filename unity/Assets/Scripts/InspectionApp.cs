@@ -7,7 +7,10 @@ using UnityEngine.Networking;
 
 [Serializable] public class IssuePosition { public float x,y,z; public Vector3 Vector => new Vector3(x,y,z); public IssuePosition(Vector3 v){x=v.x;y=v.y;z=v.z;} }
 [Serializable] public class CreateIssue { public string title,description,priority; public IssuePosition position; }
-[Serializable] public class Issue { public string id,title,description,priority,status,createdAt,updatedAt; public IssuePosition position; }
+[Serializable] public class Reporter { public string id,username,displayName; }
+[Serializable] public class LoginInput { public string username,password; }
+[Serializable] public class InspectorLogin { public string token,expiresAt; public Reporter user; }
+[Serializable] public class Issue { public string id,title,description,priority,status,createdAt,updatedAt; public IssuePosition position; public Reporter reporter; }
 [Serializable] public class IssueList { public Issue[] items; }
 [Serializable] public class ApiError { public ErrorMessage error; }
 [Serializable] public class ErrorMessage { public string message; }
@@ -31,7 +34,10 @@ public class InspectionApp : MonoBehaviour
     Issue selected;
     Material surfaceMaterial;
     Font chineseFont;
-    Rect Header => new Rect(16,16,520,210);
+    string loginUsername="inspector01",loginPassword="",authToken="";
+    Reporter currentUser;
+    bool loggingIn;
+    Rect Header => new Rect(16,16,520,250);
     Rect Modal => new Rect((Screen.width-520)/2f, Mathf.Max(20,(Screen.height-540)/2f),520,540);
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -39,10 +45,11 @@ public class InspectionApp : MonoBehaviour
 
     void Start()
     {
+        if(Array.IndexOf(Environment.GetCommandLineArgs(),"-inspection-smoke")>=0)backendUrl=Environment.GetEnvironmentVariable("INSPECTION_SMOKE_BACKEND")??backendUrl;
         // Use the installed Windows font without redistributing a proprietary font file.
         chineseFont=Font.CreateDynamicFontFromOSFont(new[]{"Microsoft YaHei","SimHei","Noto Sans CJK SC","Arial Unicode MS"},18);
         surfaceMaterial=Resources.Load<Material>("SiteSurface");
-        if(surfaceMaterial==null||!surfaceMaterial.shader.isSupported)throw new Exception("SiteSurface material missing or unsupported");
+        if(surfaceMaterial==null||(SystemInfo.graphicsDeviceType!=UnityEngine.Rendering.GraphicsDeviceType.Null&&!surfaceMaterial.shader.isSupported))throw new Exception("SiteSurface material missing or unsupported");
         // Fixed world layout: coordinates remain meaningful between desktop sessions.
         foreach(var camera in FindObjectsByType<Camera>(FindObjectsSortMode.None)) camera.gameObject.SetActive(false);
         RenderSettings.ambientLight=new Color(.64f,.69f,.75f);
@@ -59,7 +66,8 @@ public class InspectionApp : MonoBehaviour
         Box("Pipe",new Vector3(0,3.7f,6),new Vector3(14,.2f,.2f),new Color(.9f,.58f,.16f));
         var body=new GameObject("Player");body.transform.position=new Vector3(0,0,-5);player=body.AddComponent<CharacterController>();player.height=1.8f;player.center=new Vector3(0,.9f,0);player.radius=.3f;
         var cameraObject=new GameObject("Inspection Camera");cameraObject.transform.SetParent(body.transform);cameraObject.transform.localPosition=new Vector3(0,1.65f,0);view=cameraObject.AddComponent<Camera>();view.nearClipPlane=.05f;view.backgroundColor=new Color(.12f,.19f,.25f);view.clearFlags=CameraClearFlags.SolidColor;
-        StartCoroutine(Refresh());
+        view.cullingMask=0;
+        message="请使用巡检员账号登录。";
         if(Array.IndexOf(Environment.GetCommandLineArgs(),"-inspection-smoke")>=0)StartCoroutine(Smoke());
         var args=Environment.GetCommandLineArgs();int preview=Array.IndexOf(args,"-inspection-preview");
         if(preview>=0&&preview+1<args.Length)StartCoroutine(CapturePreview(args[preview+1]));
@@ -68,7 +76,7 @@ public class InspectionApp : MonoBehaviour
     GameObject Box(string name,Vector3 position,Vector3 scale,Color color){var obj=GameObject.CreatePrimitive(PrimitiveType.Cube);obj.name=name;obj.transform.position=position;obj.transform.localScale=scale;obj.layer=8;SetSurface(obj,color);return obj;}
     void Update()
     {
-        if(view==null)return;
+        if(view==null||currentUser==null)return;
         bool modal=formOpen||selected!=null;
         Vector2 pointer=new Vector2(Input.mousePosition.x,Screen.height-Input.mousePosition.y);
         bool overUI=Header.Contains(pointer)||(modal&&Modal.Contains(pointer));
@@ -95,17 +103,53 @@ public class InspectionApp : MonoBehaviour
         GUI.skin.label.fontSize=16;GUI.skin.button.fontSize=16;GUI.skin.textField.fontSize=16;GUI.skin.textArea.fontSize=16;
         GUI.skin.button.fixedHeight=32;GUI.skin.textField.fixedHeight=28;
         GUI.skin.label.wordWrap=true;
+        if(currentUser==null){
+            GUILayout.BeginArea(Modal,GUI.skin.window);
+            GUILayout.Label("虚拟现场巡检 · 巡检员登录");GUILayout.Space(12);
+            GUILayout.Label("登录后进入现场，发现的问题将自动记录您的身份。");
+            GUI.enabled=!loggingIn;
+            GUILayout.Label("后端地址");backendUrl=GUILayout.TextField(backendUrl);
+            GUILayout.Label("巡检员账号");loginUsername=GUILayout.TextField(loginUsername,100);
+            GUILayout.Label("登录密码");loginPassword=GUILayout.PasswordField(loginPassword,'●',100);
+            GUILayout.Space(15);
+            if(GUILayout.Button(loggingIn?"正在登录…":"登录并进入巡检现场")){
+                if(string.IsNullOrWhiteSpace(loginUsername)||string.IsNullOrEmpty(loginPassword))message="请输入巡检员账号和密码。";
+                else StartCoroutine(Login());
+            }
+            GUI.enabled=true;GUILayout.Space(12);GUILayout.Label(message);GUILayout.Space(16);
+            GUILayout.Label("演示账号：inspector01 / inspector02\n密码见后端 data/inspector-credentials.txt 文件。\n管理员账号用于网页管理端。");
+            GUILayout.EndArea();return;
+        }
         GUILayout.BeginArea(Header,GUI.skin.box);
         GUILayout.Label("虚拟现场巡检");GUILayout.Label("WASD 移动｜按住右键观察｜左键标注或查看问题");
-        GUILayout.BeginHorizontal();GUILayout.Label("后端地址",GUILayout.Width(75));GUI.enabled=!submitting&&!loading;backendUrl=GUILayout.TextField(backendUrl);GUILayout.EndHorizontal();
+        GUILayout.Label("当前巡检员："+currentUser.displayName+"（"+currentUser.username+"）");
+        GUILayout.Label("后端："+backendUrl);
         GUI.enabled=!loading&&!submitting&&!formOpen&&selected==null;if(GUILayout.Button(loading?"正在加载…":"刷新已保存的问题标记"))StartCoroutine(Refresh());GUI.enabled=true;
+        GUI.enabled=!loading&&!submitting&&!formOpen&&selected==null;if(GUILayout.Button("退出登录 / 切换巡检员"))StartCoroutine(Logout());GUI.enabled=true;
         GUILayout.Label(message);GUILayout.EndArea();
-        if(formOpen){GUILayout.BeginArea(Modal,GUI.skin.window);GUILayout.Label("上报巡检问题");GUILayout.Label("标注位置："+hitPosition.ToString("F3"));
+        if(formOpen){GUILayout.BeginArea(Modal,GUI.skin.window);GUILayout.Label("上报巡检问题");GUILayout.Label("发现人："+currentUser.displayName+"（后端自动记录）");GUILayout.Label("标注位置："+hitPosition.ToString("F3"));
             GUI.enabled=!submitting;
             GUILayout.Label("问题标题（必填）");title=GUILayout.TextField(title,160);GUILayout.Label("问题描述（选填）");description=GUILayout.TextArea(description,2000,GUILayout.Height(100));GUILayout.Label("优先级");priority=GUILayout.SelectionGrid(priority,priorityLabels,3);
             GUILayout.Space(15);if(GUILayout.Button(submitting?"正在提交…":"提交问题",GUILayout.Height(36))){if(string.IsNullOrWhiteSpace(title))message="请填写问题标题。";else StartCoroutine(Submit());}
             if(GUILayout.Button("取消填写")){Destroy(pending);pending=null;formOpen=false;message="已取消，未保存的标记已移除。";}GUI.enabled=true;GUILayout.Label(message);GUILayout.EndArea();
-        }else if(selected!=null){GUILayout.BeginArea(Modal,GUI.skin.window);GUILayout.Label("问题详情");GUILayout.Label(selected.title);GUILayout.Label("优先级："+PriorityLabel(selected.priority)+"｜状态："+StatusLabel(selected.status));GUILayout.Label(string.IsNullOrWhiteSpace(selected.description)?"暂无描述":selected.description);GUILayout.Label("位置："+selected.position.Vector.ToString("F3"));GUILayout.Label("问题编号："+selected.id);GUILayout.Space(20);if(GUILayout.Button("关闭详情"))selected=null;GUILayout.EndArea();}
+        }else if(selected!=null){GUILayout.BeginArea(Modal,GUI.skin.window);GUILayout.Label("问题详情");GUILayout.Label(selected.title);GUILayout.Label("发现人："+(selected.reporter==null?"历史记录（未记录）":selected.reporter.displayName+"（"+selected.reporter.username+"）"));GUILayout.Label("优先级："+PriorityLabel(selected.priority)+"｜状态："+StatusLabel(selected.status));GUILayout.Label(string.IsNullOrWhiteSpace(selected.description)?"暂无描述":selected.description);GUILayout.Label("位置："+selected.position.Vector.ToString("F3"));GUILayout.Label("问题编号："+selected.id);GUILayout.Space(20);if(GUILayout.Button("关闭详情"))selected=null;GUILayout.EndArea();}
+    }
+    void ClearSession(string reason){authToken="";currentUser=null;loginPassword="";selected=null;formOpen=false;if(pending!=null)Destroy(pending);pending=null;foreach(var marker in markers.Values)if(marker!=null)Destroy(marker.gameObject);markers.Clear();if(view!=null)view.cullingMask=0;message=reason;}
+    void Authorize(UnityWebRequest request){request.SetRequestHeader("Authorization","Bearer "+authToken);}
+    IEnumerator Login(){
+        loggingIn=true;message="正在验证账号…";
+        using(var request=new UnityWebRequest(backendUrl.TrimEnd('/')+"/api/inspector/login","POST")){
+            request.uploadHandler=new UploadHandlerRaw(Encoding.UTF8.GetBytes(JsonUtility.ToJson(new LoginInput{username=loginUsername.Trim(),password=loginPassword})));request.downloadHandler=new DownloadHandlerBuffer();request.SetRequestHeader("Content-Type","application/json");request.timeout=10;
+            yield return request.SendWebRequest();
+            if(request.result==UnityWebRequest.Result.Success){try{var result=JsonUtility.FromJson<InspectorLogin>(request.downloadHandler.text);if(result.user==null||string.IsNullOrEmpty(result.token))throw new Exception();authToken=result.token;currentUser=result.user;loginPassword="";view.cullingMask=-1;message="登录成功，欢迎"+currentUser.displayName+"。";}catch(Exception){message="登录响应格式不正确。";}}
+            else{Debug.LogWarning("Inspector login failed: HTTP "+request.responseCode+" "+request.error);message=request.responseCode==401?"账号或密码错误，请重新输入。":request.responseCode==429?"尝试次数过多，请一分钟后重试。":"无法登录，请检查后端服务和地址。";}
+        }
+        loggingIn=false;if(currentUser!=null)yield return Refresh();
+    }
+    IEnumerator Logout(){
+        loading=true;
+        using(var request=new UnityWebRequest(backendUrl.TrimEnd('/')+"/api/inspector/logout","POST")){request.downloadHandler=new DownloadHandlerBuffer();Authorize(request);request.timeout=5;yield return request.SendWebRequest();}
+        ClearSession("已退出，请登录后继续巡检。");loading=false;
     }
     string PriorityLabel(string value){return value=="high"?"高":value=="medium"?"中":"低";}
     string StatusLabel(string value){return value=="resolved"?"已解决":value=="in_progress"?"处理中":"待处理";}
@@ -114,8 +158,10 @@ public class InspectionApp : MonoBehaviour
     {
         loading=true;message="正在加载已保存的问题标记…";
         using(var request=UnityWebRequest.Get(backendUrl.TrimEnd('/')+"/api/issues")){
+            Authorize(request);
             request.timeout=10;yield return request.SendWebRequest();
-            if(request.result!=UnityWebRequest.Result.Success)message="无法连接后端，请确认 Go 服务和地址，再点击刷新。";
+            if(request.responseCode==401)ClearSession("登录已失效，请重新登录。");
+            else if(request.result!=UnityWebRequest.Result.Success)message="无法连接后端，请确认 Go 服务和地址，再点击刷新。";
             else {try{var list=JsonUtility.FromJson<IssueList>("{\"items\":"+request.downloadHandler.text+"}");foreach(var issue in list.items)PutMarker(issue);message="已加载 "+list.items.Length+" 个问题标记。";}catch(Exception){message="后端返回的数据格式不正确。";}}
         }loading=false;
     }
@@ -125,8 +171,10 @@ public class InspectionApp : MonoBehaviour
         var input=new CreateIssue{title=title.Trim(),description=description.Trim(),priority=priorities[priority],position=new IssuePosition(hitPosition)};
         using(var request=new UnityWebRequest(backendUrl.TrimEnd('/')+"/api/issues","POST")){
             request.uploadHandler=new UploadHandlerRaw(Encoding.UTF8.GetBytes(JsonUtility.ToJson(input)));request.downloadHandler=new DownloadHandlerBuffer();request.SetRequestHeader("Content-Type","application/json");request.timeout=10;
+            Authorize(request);
             yield return request.SendWebRequest();
-            if(request.result==UnityWebRequest.Result.Success){try{var issue=JsonUtility.FromJson<Issue>(request.downloadHandler.text);if(string.IsNullOrEmpty(issue.id)||issue.position==null)throw new Exception();PutMarker(issue);Destroy(pending);pending=null;formOpen=false;message="上报成功！请在管理端刷新查看。";}catch(Exception){message="响应格式异常，重试前请先到管理端核实是否已保存。";}}
+            if(request.responseCode==401)ClearSession("登录已失效，未提交标记已移除，请重新登录。");
+            else if(request.result==UnityWebRequest.Result.Success){try{var issue=JsonUtility.FromJson<Issue>(request.downloadHandler.text);if(string.IsNullOrEmpty(issue.id)||issue.position==null||issue.reporter==null||issue.reporter.id!=currentUser.id)throw new Exception();PutMarker(issue);Destroy(pending);pending=null;formOpen=false;message="上报成功！请在管理端刷新查看。";}catch(Exception){message="响应格式异常，重试前请先到管理端核实是否已保存。";}}
             else{message="提交失败，请检查后端。重试前请先到管理端核实是否已保存。";try{var err=JsonUtility.FromJson<ApiError>(request.downloadHandler.text);if(err?.error!=null)message=ErrorLabel(err.error.message);}catch(Exception){}}
         }submitting=false;
     }
@@ -134,6 +182,10 @@ public class InspectionApp : MonoBehaviour
     // Opt-in integration check for CI/local validation; never runs in normal play.
     IEnumerator Smoke()
     {
+        loginUsername=Environment.GetEnvironmentVariable("INSPECTION_SMOKE_USER")??"inspector01";
+        loginPassword=Environment.GetEnvironmentVariable("INSPECTION_SMOKE_PASSWORD")??"";
+        yield return Login();
+        if(currentUser==null){Debug.LogError("SMOKE_FAIL: inspector login failed: "+message);Application.Quit(1);yield break;}
         float deadline=Time.realtimeSinceStartup+20;
         while(loading&&Time.realtimeSinceStartup<deadline)yield return null;
         yield return new WaitForFixedUpdate();

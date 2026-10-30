@@ -23,20 +23,22 @@ type Position struct {
 	Z float64 `json:"z"`
 }
 type Issue struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Priority    string   `json:"priority"`
-	Status      string   `json:"status"`
-	Position    Position `json:"position"`
-	CreatedAt   string   `json:"createdAt"`
-	UpdatedAt   string   `json:"updatedAt"`
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Priority    string    `json:"priority"`
+	Status      string    `json:"status"`
+	Position    Position  `json:"position"`
+	CreatedAt   string    `json:"createdAt"`
+	UpdatedAt   string    `json:"updatedAt"`
+	Reporter    *Reporter `json:"reporter"`
 }
 type Server struct {
-	mu     sync.Mutex
-	path   string
-	issues []Issue
-	auth   *adminAuth
+	mu         sync.Mutex
+	path       string
+	issues     []Issue
+	auth       *adminAuth
+	inspectors *inspectorAuth
 }
 
 func load(path string) (*Server, error) {
@@ -122,7 +124,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 	}
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 	if r.Method == "OPTIONS" {
 		w.WriteHeader(204)
 		return
@@ -136,10 +138,30 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if s.auth != nil && s.auth.handle(w, r, s) {
 		return
 	}
+	if s.inspectors != nil && s.inspectors.handle(w, r) {
+		return
+	}
 	if r.URL.Path == "/api/issues" {
+		var reporter *Reporter
+		if s.inspectors != nil {
+			reporter = s.inspectors.require(w, r)
+			if reporter == nil {
+				return
+			}
+		}
 		switch r.Method {
 		case "GET":
-			reply(w, 200, s.issues)
+			if reporter == nil {
+				reply(w, 200, s.issues)
+			} else {
+				mine := []Issue{}
+				for _, issue := range s.issues {
+					if issue.Reporter != nil && issue.Reporter.ID == reporter.ID {
+						mine = append(mine, issue)
+					}
+				}
+				reply(w, 200, mine)
+			}
 		case "POST":
 			var in struct {
 				Title       string `json:"title"`
@@ -181,7 +203,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			now := time.Now().UTC().Format(time.RFC3339Nano)
-			issue := Issue{hex.EncodeToString(id), in.Title, in.Description, in.Priority, "open", p, now, now}
+			issue := Issue{ID: hex.EncodeToString(id), Title: in.Title, Description: in.Description, Priority: in.Priority, Status: "open", Position: p, CreatedAt: now, UpdatedAt: now, Reporter: reporter}
 			next := append(append([]Issue{}, s.issues...), issue)
 			if err := s.save(next); err != nil {
 				log.Print(err)
@@ -242,6 +264,10 @@ func main() {
 		log.Fatal(err)
 	}
 	s.auth, err = newAdminAuth(filepath.Join(filepath.Dir(path), "admin-password.txt"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	s.inspectors, err = newInspectorAuth(filepath.Dir(path))
 	if err != nil {
 		log.Fatal(err)
 	}

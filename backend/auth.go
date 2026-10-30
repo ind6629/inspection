@@ -174,6 +174,21 @@ func (a *adminAuth) handle(w http.ResponseWriter, r *http.Request, s *Server) bo
 			reply(w, 200, s.issues)
 		}
 		return true
+	case "/api/admin/inspectors":
+		if r.Method != "GET" {
+			fail(w, 405, "method not allowed")
+			return true
+		}
+		if a.require(w, r) {
+			users := []Reporter{}
+			if s.inspectors != nil {
+				for _, u := range s.inspectors.users {
+					users = append(users, u.Reporter)
+				}
+			}
+			reply(w, 200, users)
+		}
+		return true
 	}
 	return false
 }

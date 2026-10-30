@@ -27,7 +27,7 @@ public static class ProjectSetup
     public static void BuildWindows()
     {
         CreateScene();
-        var report=BuildPipeline.BuildPlayer(new BuildPlayerOptions{scenes=new[]{"Assets/Scenes/Inspection.unity"},locationPathName="BuildChinese/Inspection.exe",target=BuildTarget.StandaloneWindows64,options=BuildOptions.None});
+        var report=BuildPipeline.BuildPlayer(new BuildPlayerOptions{scenes=new[]{"Assets/Scenes/Inspection.unity"},locationPathName="BuildUsers/Inspection.exe",target=BuildTarget.StandaloneWindows64,options=BuildOptions.None});
         if(report.summary.result!=UnityEditor.Build.Reporting.BuildResult.Succeeded)throw new System.Exception("Build failed");
     }
 }
