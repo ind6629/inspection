@@ -38,6 +38,8 @@ type inspectorAuth struct {
 	path               string
 	registrations      int
 	registrationWindow time.Time
+	passwordAttempts   map[string]int
+	passwordWindow     time.Time
 }
 
 func newInspectorAuth(dir string) (*inspectorAuth, error) {
@@ -115,6 +117,70 @@ func (a *inspectorAuth) require(w http.ResponseWriter, r *http.Request) *Reporte
 }
 func (a *inspectorAuth) handle(w http.ResponseWriter, r *http.Request) bool {
 	switch r.URL.Path {
+	case "/api/inspector/password":
+		if r.Method != "POST" {
+			fail(w, 405, "method not allowed")
+			return true
+		}
+		user := a.require(w, r)
+		if user == nil {
+			return true
+		}
+		var in struct {
+			CurrentPassword string `json:"currentPassword"`
+			NewPassword     string `json:"newPassword"`
+		}
+		if err := decode(w, r, &in); err != nil {
+			fail(w, 400, "修改密码参数不正确")
+			return true
+		}
+		if !validPassword(in.NewPassword) {
+			fail(w, 400, "新密码至少6个字符，且不超过72字节")
+			return true
+		}
+		if in.CurrentPassword == in.NewPassword {
+			fail(w, 400, "新密码不能与原密码相同")
+			return true
+		}
+		now := time.Now()
+		if now.Sub(a.passwordWindow) > time.Minute {
+			a.passwordWindow = now
+			a.passwordAttempts = map[string]int{}
+		}
+		if a.passwordAttempts == nil {
+			a.passwordAttempts = map[string]int{}
+		}
+		if a.passwordAttempts[user.ID] >= 5 {
+			w.Header().Set("Retry-After", "60")
+			fail(w, 429, "原密码错误次数过多，请一分钟后重试")
+			return true
+		}
+		for i, account := range a.users {
+			if account.ID == user.ID {
+				if bcrypt.CompareHashAndPassword([]byte(account.PasswordHash), []byte(in.CurrentPassword)) != nil {
+					a.passwordAttempts[user.ID]++
+					fail(w, 400, "原密码不正确")
+					return true
+				}
+				hash, err := bcrypt.GenerateFromPassword([]byte(in.NewPassword), bcrypt.DefaultCost)
+				if err != nil {
+					fail(w, 500, "密码处理失败")
+					return true
+				}
+				next := append([]inspectorAccount{}, a.users...)
+				next[i].PasswordHash = string(hash)
+				if err = a.saveUsers(next); err != nil {
+					fail(w, 500, "密码保存失败，修改未生效")
+					return true
+				}
+				a.revokeUser(user.ID)
+				delete(a.passwordAttempts, user.ID)
+				reply(w, 200, map[string]bool{"ok": true})
+				return true
+			}
+		}
+		fail(w, 404, "用户不存在")
+		return true
 	case "/api/inspector/register":
 		w.Header().Set("Cache-Control", "no-store")
 		if r.Method != "POST" {

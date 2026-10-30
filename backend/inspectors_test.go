@@ -18,10 +18,11 @@ import (
 // Opt-in: exercise the real Windows Unity player against an isolated HTTP server.
 // Uses disposable test credentials, never reads local operator passwords.
 func TestUnityPlayerIntegration(t *testing.T) {
-	runUnityIntegration(t, false)
+	runUnityIntegration(t, false, false)
 }
-func TestUnityPlayerRegistration(t *testing.T) { runUnityIntegration(t, true) }
-func runUnityIntegration(t *testing.T, registration bool) {
+func TestUnityPlayerRegistration(t *testing.T)   { runUnityIntegration(t, true, false) }
+func TestUnityPlayerPasswordChange(t *testing.T) { runUnityIntegration(t, false, true) }
+func runUnityIntegration(t *testing.T, registration bool, passwordChange bool) {
 	executable := os.Getenv("INSPECTION_UNITY_EXE")
 	if executable == "" {
 		t.Skip("set INSPECTION_UNITY_EXE to enable player integration")
@@ -30,6 +31,7 @@ func runUnityIntegration(t *testing.T, registration bool) {
 	s, _ := load(path)
 	hash, _ := bcrypt.GenerateFromPassword([]byte("unity-test-password"), bcrypt.MinCost)
 	s.inspectors = &inspectorAuth{users: []inspectorAccount{{Reporter{"unity-test-user", "unity-test", "测试巡检员"}, string(hash), false}}, sessions: map[string]inspectorSession{}}
+	s.inspectors.path = filepath.Join(filepath.Dir(path), "inspectors.json")
 	username := "unity-test"
 	registrationFlag := "0"
 	if registration {
@@ -47,8 +49,20 @@ func runUnityIntegration(t *testing.T, registration bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, executable, "-batchmode", "-nographics", "-inspection-smoke", "-logFile", logPath)
+	previewPrefix := os.Getenv("INSPECTION_UNITY_PREVIEW_PREFIX")
+	if passwordChange && previewPrefix != "" {
+		command = exec.CommandContext(ctx, executable, "-screen-fullscreen", "0", "-screen-width", "1280", "-screen-height", "800", "-inspection-smoke", "-logFile", logPath)
+	}
 	localURL := strings.Replace(server.URL, "127.0.0.1", "localhost", 1)
 	command.Env = append(os.Environ(), "INSPECTION_SMOKE_USER="+username, "INSPECTION_SMOKE_REGISTER="+registrationFlag, "INSPECTION_SMOKE_PASSWORD=unity-test-password", "INSPECTION_SMOKE_BACKEND="+localURL, "NO_PROXY=localhost,127.0.0.1", "no_proxy=localhost,127.0.0.1", "HTTP_PROXY=", "HTTPS_PROXY=", "ALL_PROXY=")
+	if passwordChange {
+		command.Env = append(command.Env, "INSPECTION_SMOKE_CHANGE_PASSWORD=1")
+		if previewPrefix != "" {
+			command.Env = append(command.Env, "INSPECTION_CAPTURE_PREFIX="+previewPrefix)
+		}
+	} else {
+		command.Env = append(command.Env, "INSPECTION_SMOKE_CHANGE_PASSWORD=0")
+	}
 	err := command.Run()
 	logBytes, _ := os.ReadFile(logPath)
 	if err != nil || !strings.Contains(string(logBytes), "INSPECTION_SMOKE_PASS") {
@@ -57,6 +71,12 @@ func runUnityIntegration(t *testing.T, registration bool) {
 	restored, err := load(path)
 	if err != nil || len(restored.issues) != 1 || restored.issues[0].Reporter == nil || restored.issues[0].Reporter.Username != username {
 		t.Fatal("Unity reporter not persisted", err)
+	}
+	if restored.issues[0].DeviceID != "CAB-002" || restored.issues[0].Area != "机房A区" {
+		t.Fatal("Unity hit metadata not persisted", restored.issues[0])
+	}
+	if passwordChange && !strings.Contains(string(logBytes), "INSPECTION_PASSWORD_PASS") {
+		t.Fatal("Unity password flow not verified")
 	}
 }
 

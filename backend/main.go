@@ -32,6 +32,8 @@ type Issue struct {
 	CreatedAt   string    `json:"createdAt"`
 	UpdatedAt   string    `json:"updatedAt"`
 	Reporter    *Reporter `json:"reporter"`
+	DeviceID    string    `json:"deviceId"`
+	Area        string    `json:"area"`
 }
 type Server struct {
 	mu         sync.Mutex
@@ -178,6 +180,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Title       string `json:"title"`
 				Description string `json:"description"`
 				Priority    string `json:"priority"`
+				DeviceID    string `json:"deviceId"`
+				Area        string `json:"area"`
 				Position    *struct {
 					X *float64 `json:"x"`
 					Y *float64 `json:"y"`
@@ -197,6 +201,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				fail(w, 400, "priority must be low, medium or high")
 				return
 			}
+			deviceID, area, locationError := validateLocation(in.DeviceID, in.Area)
+			if locationError != "" {
+				fail(w, 400, locationError)
+				return
+			}
 			if in.Position == nil || in.Position.X == nil || in.Position.Y == nil || in.Position.Z == nil {
 				fail(w, 400, "position.x/y/z are required")
 				return
@@ -214,7 +223,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			now := time.Now().UTC().Format(time.RFC3339Nano)
-			issue := Issue{ID: hex.EncodeToString(id), Title: in.Title, Description: in.Description, Priority: in.Priority, Status: "open", Position: p, CreatedAt: now, UpdatedAt: now, Reporter: reporter}
+			issue := Issue{ID: hex.EncodeToString(id), Title: in.Title, Description: in.Description, Priority: in.Priority, Status: "open", Position: p, CreatedAt: now, UpdatedAt: now, Reporter: reporter, DeviceID: deviceID, Area: area}
 			next := append(append([]Issue{}, s.issues...), issue)
 			if err := s.save(next); err != nil {
 				log.Print(err)

@@ -10,6 +10,7 @@ unity/BuildChinese/
 unity/BuildUsers/
 unity/BuildRegister/
 unity/BuildManaged/
+unity/BuildLocationPassword/
 unity/.vs/
 unity/*.csproj
 unity/*.sln*

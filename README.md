@@ -64,11 +64,32 @@ npm run build
 
 顶部可修改后端地址。Unity 使用 `Input` 传统输入 API；如果另建工程迁移脚本，需启用 Input Manager 或 Both。层 8 为可点击表面，层 9 为标记。世界布局固定，不要随意移动场景原点后继续使用原数据。
 
-可使用 `ProjectSetup.BuildWindows` 批处理方法生成 `unity/BuildManaged/Inspection.exe`，或使用 Unity Build Profiles。构建目录默认不纳入 Git。`Build/` 是粉色材质旧版，`BuildFixed/` 是英文修复版，请运行 `BuildManaged/` 支持账号管理联动的新版本。
+可使用 `ProjectSetup.BuildWindows` 批处理方法生成 `unity/BuildLocationPassword/Inspection.exe`，或使用 Unity Build Profiles。构建目录默认不纳入 Git。`Build/` 是粉色材质旧版，`BuildFixed/` 是英文修复版，请运行 `BuildLocationPassword/` 设备区域及自助改密新版本。
 
 场景材质明确引用 `Resources/SiteSurface.mat` 和项目内置 `SiteSurface.shader`，不依赖运行时 Primitive 的默认材质。可传入 `-inspection-preview <绝对PNG路径>` 在运行两秒后截图，用于实际图形构建检查。
 
 ## 接口约定
+
+### 设备编号、所属区域与自助改密
+
+最新 Windows 程序位于 `unity/BuildLocationPassword/Inspection.exe`。点击机柜的正面、侧面或面板，表单会自动显示设备编号、所属区域及实际命中坐标，信息随问题保存。地面/墙面仅记录区域，不伪造设备编号。区域按固定场景规则划分：地面/墙面命中点 x<2 为机房A区，其余为机房B区。
+
+| 设备编号 | 区域 | 场景对象 |
+|---|---|---|
+| CAB-001 | 机房A区 | 左侧机柜及面板 |
+| CAB-002 | 机房A区 | 中间机柜及面板 |
+| CAB-003 | 机房B区 | 右侧机柜及面板 |
+| PIPE-001 | 机房公共区 | 后方管线 |
+
+问题增加 `deviceId`、`area` 字段，后端检查设备目录和区域是否匹配；仅提供设备编号时自动补齐目录区域。旧客户端可以省略这两个字段，旧数据仍显示“未记录”，不根据坐标推测补填。设备目录目前是固定场景配置，未提供设备资产管理页面。
+
+React 问题清单增加“设备 / 区域”列和区域下拉筛选，标题搜索同时支持设备编号。详情同时显示设备、区域、发现人和坐标，可与发现人、状态筛选组合使用。
+
+巡检员登录 Unity 后点击“修改我的密码”，填写原密码、新密码和确认密码。新密码至少6个字符、最多72字节，不能与原密码相同。`POST /api/inspector/password` 请求 `{currentPassword,newPassword}`，必须携带本人 Bearer Token；不能指定其他用户。后端验证原密码，成功保存 bcrypt 哈希后撤销该用户全部会话，需使用新密码重新登录。密码错误不会撤销当前会话；每位用户每分钟原密码错误最多5次，超过返回429。保存失败不更改密码或会话。
+
+管理员仍可在“用户管理”中重置密码，不要求提供用户原密码。忘记原密码时请联系管理员；初始演示密码文件不会随修改更新。
+
+自动检查增加 `TestDeviceAndAreaPersistence`、`TestInspectorOwnPasswordChange`、`TestUnityPlayerPasswordChange`。最后一项使用真实 Windows 程序和独立临时服务验证上报设备、区域、自助改密及新密码重新登录，不影响本机实际账户。设置 `INSPECTION_UNITY_PREVIEW_PREFIX` 可让该集成检查启用图形模式并保存设备表单、改密表单截图，截图中的账号和密码均为测试专用。
 
 ### 管理员用户账户管理
 
@@ -90,7 +111,7 @@ npm run build
 ### 巡检员登录与发现人分类
 
 - 启动后端时首次生成两个演示账号 `inspector01` / `inspector02`，显示名为“巡检员1”/“巡检员2”。本机随机密码见 `backend/data/inspector-credentials.txt`，账号 ID、姓名及 bcrypt 密码哈希保存于 `backend/data/inspectors.json`；两者都在 Git 忽略目录内。重启沿用账号，不重新生成密码。管理员账号不能在巡检员登录入口使用。
-- Unity 新版程序：`unity/BuildManaged/Inspection.exe`。先登录，再进入现场；顶部显示当前巡检员，可以退出/切换。切换时清除前一用户的标记和未提交内容，重新加载当前用户自己的记录。登录前不能移动或标注。启动后默认显示登录页，不在磁盘保存 Token 或巡检员密码。
+- Unity 新版程序：`unity/BuildLocationPassword/Inspection.exe`。先登录，再进入现场；顶部显示当前巡检员，可以退出/切换。切换时清除前一用户的标记和未提交内容，重新加载当前用户自己的记录。登录前不能移动或标注。启动后默认显示登录页，不在磁盘保存 Token 或巡检员密码。
 - `POST /api/inspector/login`：`{"username":"inspector01","password":"<本机密码>"}`，返回 `{token,user:{id,username,displayName},expiresAt}`。会话有效期 8 小时，Go 重启后需要重新登录；退出接口为 `POST /api/inspector/logout`，身份检查为 `GET /api/inspector/me`。
 - 巡检员请求头：`Authorization: Bearer <token>`。创建和读取 `/api/issues` 均需登录；读取仅返回本人数据。巡检员不能调用管理端接口或修改处理状态。管理员仍使用独立 HttpOnly Cookie 会话。
 - 新 Issue 增加只读 `reporter:{id,username,displayName}`。发现人完全由后端登录身份产生；创建请求中传入 reporter 会被拒绝，不能冒充其他用户。姓名按上报时保存快照；旧问题 `reporter=null`，显示“历史记录（未记录发现人）”，不会猜测或伪造原始发现人。
@@ -99,7 +120,7 @@ npm run build
 
 ### 巡检员自助注册
 
-运行 `unity/BuildManaged/Inspection.exe`，在登录页点击“没有账号？注册巡检员”，填写姓名、账号、密码和确认密码。注册成功自动登录进入现场；如自动登录失败，可使用刚注册的账号重新登录。
+运行 `unity/BuildLocationPassword/Inspection.exe`，在登录页点击“没有账号？注册巡检员”，填写姓名、账号、密码和确认密码。注册成功自动登录进入现场；如自动登录失败，可使用刚注册的账号重新登录。
 
 账号为3～32位字母、数字、下划线，字母开头，服务端统一转小写；姓名1～40个字符；密码至少6个字符且 UTF-8 不超过72字节。重名返回409，注册参数错误返回400。管理端保留独立管理员账号，不允许注册时指定管理员角色。
 
@@ -111,7 +132,7 @@ npm run build
 
 ```powershell
 cd backend
-$env:INSPECTION_UNITY_EXE='<绝对路径>/unity/BuildManaged/Inspection.exe'
+$env:INSPECTION_UNITY_EXE='<绝对路径>/unity/BuildLocationPassword/Inspection.exe'
 go test -v -run 'TestUnityPlayer(Integration|Registration)' .
 ```
 
