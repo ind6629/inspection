@@ -1,0 +1,25 @@
+pluginManagement {
+    repositories {
+        **ARTIFACTORYREPOSITORY**
+        gradlePluginPortal()
+        google()
+        mavenCentral()
+    }
+}
+include ':launcher'
+include ':unityLibrary'
+**INCLUDES**
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        **ARTIFACTORYREPOSITORY**
+        // Project-local Google Maven mirror for networks that cannot reach dl.google.com.
+        if (System.getenv('INSPECTION_LOCAL_MAVEN')) {
+            maven { url uri(System.getenv('INSPECTION_LOCAL_MAVEN')) }
+        }
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        google()
+        mavenCentral()
+        flatDir { dirs "${project(':unityLibrary').projectDir}/libs" }
+    }
+}

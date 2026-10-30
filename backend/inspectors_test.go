@@ -53,6 +53,9 @@ func runUnityIntegration(t *testing.T, registration bool, passwordChange bool) {
 	if passwordChange && previewPrefix != "" {
 		command = exec.CommandContext(ctx, executable, "-screen-fullscreen", "0", "-screen-width", "1280", "-screen-height", "800", "-inspection-smoke", "-logFile", logPath)
 	}
+	if os.Getenv("INSPECTION_UNITY_MOBILE_PREVIEW") == "1" {
+		command.Args = append(command.Args, "-inspection-mobile-preview")
+	}
 	localURL := strings.Replace(server.URL, "127.0.0.1", "localhost", 1)
 	command.Env = append(os.Environ(), "INSPECTION_SMOKE_USER="+username, "INSPECTION_SMOKE_REGISTER="+registrationFlag, "INSPECTION_SMOKE_PASSWORD=unity-test-password", "INSPECTION_SMOKE_BACKEND="+localURL, "NO_PROXY=localhost,127.0.0.1", "no_proxy=localhost,127.0.0.1", "HTTP_PROXY=", "HTTPS_PROXY=", "ALL_PROXY=")
 	if passwordChange {

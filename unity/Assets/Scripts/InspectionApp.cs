@@ -45,18 +45,27 @@ public class InspectionApp : MonoBehaviour
     string pendingDeviceId="",pendingArea="";
     bool passwordOpen;
     string oldPassword="",newPassword="",newPasswordConfirmation="";
-    Rect LoginRect { get {float height=registerMode?660:570;return new Rect((Screen.width-520)/2f,Mathf.Max(16,(Screen.height-height)/2f),520,height);} }
-    Rect Header => new Rect(16,16,520,250);
-    Rect Modal => new Rect((Screen.width-520)/2f, Mathf.Max(20,(Screen.height-540)/2f),520,540);
+    bool MobileMode => Application.isMobilePlatform||Array.IndexOf(Environment.GetCommandLineArgs(),"-inspection-mobile-preview")>=0;
+    readonly TouchNavigation touchNavigation=new TouchNavigation();
+    Rect SafeArea => MobileMode?Screen.safeArea:new Rect(0,0,Screen.width,Screen.height);
+    float UiScale => MobileMode?Mathf.Max(.5f,Mathf.Min(SafeArea.width/1280f,SafeArea.height/800f)):1;
+    float UiWidth=>SafeArea.width/UiScale;
+    float UiHeight=>SafeArea.height/UiScale;
+    Rect LoginRect { get {float height=MobileMode?(registerMode?780:680):(registerMode?660:570),width=MobileMode?680:520;return new Rect((UiWidth-width)/2f,Mathf.Max(16,(UiHeight-height)/2f),width,height);} }
+    Rect Header => new Rect(16,16,MobileMode?600:520,MobileMode?340:250);
+    Rect Modal {get{float width=MobileMode?680:520,height=MobileMode?740:540;return new Rect((UiWidth-width)/2f,Mathf.Max(16,(UiHeight-height)/2f),width,height);}}
+    Rect MovementPad => new Rect(24,UiHeight-224,260,208);
+    Vector2 GuiPoint(Vector2 p)=>new Vector2((p.x-SafeArea.x)/UiScale,(Screen.height-p.y-(Screen.height-SafeArea.yMax))/UiScale);
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Bootstrap(){if(FindFirstObjectByType<InspectionApp>()==null)new GameObject("InspectionApp").AddComponent<InspectionApp>();}
 
     void Start()
     {
+        if(Application.isMobilePlatform){Screen.orientation=ScreenOrientation.LandscapeLeft;Application.targetFrameRate=60;var config=Resources.Load<TextAsset>("AndroidBackend");backendUrl=PlayerPrefs.GetString("inspection.backend",config==null?"http://192.168.1.100:8080":config.text.Trim());}
         if(Array.IndexOf(Environment.GetCommandLineArgs(),"-inspection-smoke")>=0)backendUrl=Environment.GetEnvironmentVariable("INSPECTION_SMOKE_BACKEND")??backendUrl;
-        // Use the installed Windows font without redistributing a proprietary font file.
-        chineseFont=Font.CreateDynamicFontFromOSFont(new[]{"Microsoft YaHei","SimHei","Noto Sans CJK SC","Arial Unicode MS"},18);
+        chineseFont=Resources.Load<Font>("Fonts/NotoSansCJKsc-Regular");
+        if(chineseFont==null)chineseFont=Font.CreateDynamicFontFromOSFont(new[]{"Microsoft YaHei","SimHei","Noto Sans CJK SC","Arial Unicode MS"},18);
         surfaceMaterial=Resources.Load<Material>("SiteSurface");
         if(surfaceMaterial==null||(SystemInfo.graphicsDeviceType!=UnityEngine.Rendering.GraphicsDeviceType.Null&&!surfaceMaterial.shader.isSupported))throw new Exception("SiteSurface material missing or unsupported");
         // Fixed world layout: coordinates remain meaningful between desktop sessions.
@@ -90,14 +99,31 @@ public class InspectionApp : MonoBehaviour
     {
         if(view==null||currentUser==null)return;
         bool modal=formOpen||selected!=null||passwordOpen;
-        Vector2 pointer=new Vector2(Input.mousePosition.x,Screen.height-Input.mousePosition.y);
+        if(MobileMode){UpdateTouches(modal);return;}
+        Vector2 pointer=GuiPoint(Input.mousePosition);
         bool overUI=Header.Contains(pointer)||(modal&&Modal.Contains(pointer));
         if(!modal&&!submitting){
             if(Input.GetMouseButton(1)&&!overUI){yaw+=Input.GetAxis("Mouse X")*2.2f;pitch=Mathf.Clamp(pitch-Input.GetAxis("Mouse Y")*2.2f,-75,75);player.transform.rotation=Quaternion.Euler(0,yaw,0);view.transform.localRotation=Quaternion.Euler(pitch,0,0);}
             Vector3 move=player.transform.right*Input.GetAxisRaw("Horizontal")+player.transform.forward*Input.GetAxisRaw("Vertical");move=Vector3.ClampMagnitude(move,1)*4;move.y=-9.8f;player.Move(move*Time.deltaTime);
         }
         if(modal||submitting||loading||overUI||!Input.GetMouseButtonDown(0))return;
-        Ray ray=view.ScreenPointToRay(Input.mousePosition);
+        PlaceAtScreenPoint(Input.mousePosition);
+    }
+    void UpdateTouches(bool modal){
+        if(modal||submitting||loading){touchNavigation.Clear();return;}
+        touchNavigation.BeginFrame();
+        for(int i=0;i<Input.touchCount;i++){
+            var touch=Input.GetTouch(i);var point=GuiPoint(touch.position);
+            bool tap=touchNavigation.Process(touch.fingerId,touch.phase,point,touch.deltaPosition/UiScale,Time.unscaledTime,Header.Contains(point),MovementPad.Contains(point),MovementPad.center);
+            if(tap)PlaceAtScreenPoint(touch.position);
+        }
+        if(formOpen||selected!=null){touchNavigation.Clear();return;}
+        yaw+=touchNavigation.Look.x*.15f;pitch=Mathf.Clamp(pitch-touchNavigation.Look.y*.15f,-75,75);player.transform.rotation=Quaternion.Euler(0,yaw,0);view.transform.localRotation=Quaternion.Euler(pitch,0,0);
+        Vector3 move=(player.transform.right*touchNavigation.Move.x+player.transform.forward*touchNavigation.Move.y)*4;move.y=-9.8f;player.Move(move*Time.deltaTime);
+    }
+    void PlaceAtScreenPoint(Vector2 point){
+        if(formOpen||selected!=null||passwordOpen||submitting||loading||pending!=null||currentUser==null)return;
+        Ray ray=view.ScreenPointToRay(point);
         if(!Physics.Raycast(ray,out RaycastHit hit,100f, (1<<8)|(1<<9),QueryTriggerInteraction.Ignore))return;
         var marker=hit.collider.GetComponent<InspectionMarker>();
         if(marker!=null){selected=marker.issue;return;}
@@ -111,9 +137,10 @@ public class InspectionApp : MonoBehaviour
     void PutMarker(Issue issue){if(markers.TryGetValue(issue.id,out var marker)){marker.issue=issue;marker.GetComponent<Renderer>().material.color=MarkerColor(issue);return;}var obj=MakeMarker(issue.position.Vector,MarkerColor(issue));obj.name="Issue "+issue.id;marker=obj.AddComponent<InspectionMarker>();marker.issue=issue;markers.Add(issue.id,marker);}
     void OnGUI()
     {
+        GUI.matrix=Matrix4x4.TRS(new Vector3(SafeArea.x,Screen.height-SafeArea.yMax,0),Quaternion.identity,Vector3.one*UiScale);
         GUI.skin.font=chineseFont;
-        GUI.skin.label.fontSize=16;GUI.skin.button.fontSize=16;GUI.skin.textField.fontSize=16;GUI.skin.textArea.fontSize=16;
-        GUI.skin.button.fixedHeight=32;GUI.skin.textField.fixedHeight=28;
+        int fontSize=MobileMode?22:16;GUI.skin.label.fontSize=fontSize;GUI.skin.button.fontSize=fontSize;GUI.skin.textField.fontSize=fontSize;GUI.skin.textArea.fontSize=fontSize;
+        GUI.skin.button.fixedHeight=MobileMode?56:32;GUI.skin.textField.fixedHeight=MobileMode?44:28;
         GUI.skin.label.wordWrap=true;
         if(currentUser==null){
             GUILayout.BeginArea(LoginRect,GUI.skin.window);
@@ -139,12 +166,13 @@ public class InspectionApp : MonoBehaviour
             GUILayout.EndArea();return;
         }
         GUILayout.BeginArea(Header,GUI.skin.box);
-        GUILayout.Label("虚拟现场巡检");GUILayout.Label("WASD 移动｜按住右键观察｜左键标注或查看问题");
+        GUILayout.Label("虚拟现场巡检");GUILayout.Label(MobileMode?"方向键移动｜拖动观察｜轻点标注":"WASD 移动｜按住右键观察｜左键标注或查看问题");
         GUILayout.Label("当前巡检员："+currentUser.displayName+"（"+currentUser.username+"）");
         GUILayout.Label("后端："+backendUrl);
         GUI.enabled=!loading&&!submitting&&!formOpen&&selected==null&&!passwordOpen;if(GUILayout.Button(loading?"正在加载…":"刷新已保存的问题标记"))StartCoroutine(Refresh());GUI.enabled=true;
         GUI.enabled=!loading&&!submitting&&!formOpen&&selected==null&&!passwordOpen;GUILayout.BeginHorizontal();if(GUILayout.Button("修改我的密码")){passwordOpen=true;oldPassword="";newPassword="";newPasswordConfirmation="";message="请输入原密码和新密码。";}if(GUILayout.Button("退出登录 / 切换巡检员"))StartCoroutine(Logout());GUILayout.EndHorizontal();GUI.enabled=true;
         GUILayout.Label(message);GUILayout.EndArea();
+        if(MobileMode&&!formOpen&&selected==null&&!passwordOpen){var pad=MovementPad;GUI.Box(new Rect(pad.x+88,pad.y,84,64),"前进");GUI.Box(new Rect(pad.x+88,pad.y+144,84,64),"后退");GUI.Box(new Rect(pad.x,pad.y+72,80,64),"左移");GUI.Box(new Rect(pad.x+180,pad.y+72,80,64),"右移");GUI.Label(new Rect(UiWidth-340,UiHeight-56,320,40),"拖动转动视角，轻点放置标记");}
         if(passwordOpen||formOpen||selected!=null)DrawModalBackground(Modal);
         if(passwordOpen){GUILayout.BeginArea(Modal,GUI.skin.window);GUILayout.Label("修改我的密码");GUILayout.Label("当前账号："+currentUser.username);GUI.enabled=!submitting;
             GUILayout.Label("原密码");oldPassword=GUILayout.PasswordField(oldPassword,'●',100);GUILayout.Label("新密码（至少6个字符）");newPassword=GUILayout.PasswordField(newPassword,'●',100);GUILayout.Label("确认新密码");newPasswordConfirmation=GUILayout.PasswordField(newPasswordConfirmation,'●',100);GUILayout.Space(16);
@@ -153,12 +181,12 @@ public class InspectionApp : MonoBehaviour
         if(formOpen){GUILayout.BeginArea(Modal,GUI.skin.window);GUILayout.Label("上报巡检问题");GUILayout.Label("发现人："+currentUser.displayName+"（后端自动记录）");GUILayout.Label("区域："+pendingArea+"｜设备："+(string.IsNullOrEmpty(pendingDeviceId)?"场景表面（无设备）":pendingDeviceId));GUILayout.Label("标注位置："+hitPosition.ToString("F3"));
             GUI.enabled=!submitting;
             GUILayout.Label("问题标题（必填）");title=GUILayout.TextField(title,160);GUILayout.Label("问题描述（选填）");description=GUILayout.TextArea(description,2000,GUILayout.Height(100));GUILayout.Label("优先级");priority=GUILayout.SelectionGrid(priority,priorityLabels,3);
-            GUILayout.Space(15);if(GUILayout.Button(submitting?"正在提交…":"提交问题",GUILayout.Height(36))){if(string.IsNullOrWhiteSpace(title))message="请填写问题标题。";else StartCoroutine(Submit());}
+            GUILayout.Space(15);if(GUILayout.Button(submitting?"正在提交…":"提交问题",GUILayout.Height(MobileMode?56:36))){if(string.IsNullOrWhiteSpace(title))message="请填写问题标题。";else StartCoroutine(Submit());}
             if(GUILayout.Button("取消填写")){Destroy(pending);pending=null;formOpen=false;message="已取消，未保存的标记已移除。";}GUI.enabled=true;GUILayout.Label(message);GUILayout.EndArea();
         }else if(selected!=null){GUILayout.BeginArea(Modal,GUI.skin.window);GUILayout.Label("问题详情");GUILayout.Label(selected.title);GUILayout.Label("发现人："+(selected.reporter==null?"历史记录（未记录）":selected.reporter.displayName+"（"+selected.reporter.username+"）"));GUILayout.Label("优先级："+PriorityLabel(selected.priority)+"｜状态："+StatusLabel(selected.status));GUILayout.Label(string.IsNullOrWhiteSpace(selected.description)?"暂无描述":selected.description);GUILayout.Label("区域："+(string.IsNullOrEmpty(selected.area)?"未记录":selected.area)+"｜设备："+(string.IsNullOrEmpty(selected.deviceId)?"未记录 / 场景表面":selected.deviceId));GUILayout.Label("位置："+selected.position.Vector.ToString("F3"));GUILayout.Label("问题编号："+selected.id);GUILayout.Space(20);if(GUILayout.Button("关闭详情"))selected=null;GUILayout.EndArea();}
     }
-    void ClearSession(string reason){authToken="";currentUser=null;loginPassword="";selected=null;formOpen=false;passwordOpen=false;oldPassword="";newPassword="";newPasswordConfirmation="";if(pending!=null)Destroy(pending);pending=null;foreach(var marker in markers.Values)if(marker!=null)Destroy(marker.gameObject);markers.Clear();if(view!=null)view.cullingMask=0;message=reason;}
-    void DrawModalBackground(Rect rect){var original=GUI.color;GUI.color=new Color(0,0,0,.55f);GUI.DrawTexture(new Rect(0,0,Screen.width,Screen.height),Texture2D.whiteTexture);GUI.color=new Color(.10f,.15f,.18f,1);GUI.DrawTexture(rect,Texture2D.whiteTexture);GUI.color=original;}
+    void ClearSession(string reason){touchNavigation.Clear();authToken="";currentUser=null;loginPassword="";selected=null;formOpen=false;passwordOpen=false;oldPassword="";newPassword="";newPasswordConfirmation="";if(pending!=null)Destroy(pending);pending=null;foreach(var marker in markers.Values)if(marker!=null)Destroy(marker.gameObject);markers.Clear();if(view!=null)view.cullingMask=0;message=reason;}
+    void DrawModalBackground(Rect rect){var original=GUI.color;GUI.color=new Color(0,0,0,.55f);GUI.DrawTexture(new Rect(0,0,UiWidth,UiHeight),Texture2D.whiteTexture);GUI.color=new Color(.10f,.15f,.18f,1);GUI.DrawTexture(rect,Texture2D.whiteTexture);GUI.color=original;}
     void Authorize(UnityWebRequest request){request.SetRequestHeader("Authorization","Bearer "+authToken);}
     IEnumerator ChangePassword(){
         submitting=true;message="正在修改密码…";
@@ -183,6 +211,7 @@ public class InspectionApp : MonoBehaviour
         if(created){yield return Login();if(currentUser==null)message="账号已注册。"+message;}
     }
     IEnumerator Login(){
+        if(Application.isMobilePlatform){PlayerPrefs.SetString("inspection.backend",backendUrl.TrimEnd('/'));PlayerPrefs.Save();}
         loggingIn=true;message="正在验证账号…";
         using(var request=new UnityWebRequest(backendUrl.TrimEnd('/')+"/api/inspector/login","POST")){
             request.uploadHandler=new UploadHandlerRaw(Encoding.UTF8.GetBytes(JsonUtility.ToJson(new LoginInput{username=loginUsername.Trim(),password=loginPassword})));request.downloadHandler=new DownloadHandlerBuffer();request.SetRequestHeader("Content-Type","application/json");request.timeout=10;
@@ -229,6 +258,7 @@ public class InspectionApp : MonoBehaviour
     // Opt-in integration check for CI/local validation; never runs in normal play.
     IEnumerator Smoke()
     {
+        TouchNavigation.Verify();
         loginUsername=Environment.GetEnvironmentVariable("INSPECTION_SMOKE_USER")??"inspector01";
         string smokePassword=Environment.GetEnvironmentVariable("INSPECTION_SMOKE_PASSWORD")??"";loginPassword=smokePassword;
         if(Environment.GetEnvironmentVariable("INSPECTION_SMOKE_REGISTER")=="1"){registerName="集成检查巡检员";confirmPassword=loginPassword;yield return Register();}else yield return Login();

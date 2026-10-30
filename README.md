@@ -9,9 +9,29 @@ Unity 桌面虚拟机房 → 射线命中放置标记 → HTTP 上报 → Go JSO
 - Go：本机 1.27.3，模块最低声明 1.23，巡检员密码使用 golang.org/x/crypto/bcrypt（依赖锁定见 go.mod/go.sum）。
 - Node.js：本机 22.14.0。React / React DOM 19、TypeScript 5、Vite 6；精确依赖见 `admin/package-lock.json`，使用 `npm ci` 重现。
 - 所有地址默认用于同一台电脑本地演示。Unity 操作说明、表单、按钮、机柜编号、状态和反馈均使用中文，管理端和文档使用中文。
-- Unity 从系统加载 Microsoft YaHei / SimHei / Noto Sans CJK SC 等中文字体，不分发 Windows 字体文件；本机已安装微软雅黑，其他电脑需有上述支持中文的字体之一。
+- Unity 优先使用随项目打包的 Noto Sans CJK SC Regular（SIL OFL 1.1）；字体原文件、许可与来源位于 Assets/Resources/Fonts，未分发 Windows 专有字体。
 
 ## 启动
+
+### 安卓手机版
+
+安卓安装包位于 `android/Inspection-Android.apk`，约31 MiB，应用名“虚拟现场巡检”，包名 `com.inspectiondemo.virtualsite`，版本1.0.0。最低 Android 8.0 / API26，ARM64，OpenGL ES3.1；横屏运行。已通过 APK v2 签名和清单检查，包含 INTERNET 权限及局域网 HTTP 配置，不需要 ARCore、摄像头或定位权限。签名为本地演示调试签名，不是应用商店发布配置。
+
+安装步骤见 `android/INSTALL.md`。生成 APK 不需要连接手机；USB 仅在选择 USB 传文件或调试时需要。手机与电脑同 Wi-Fi，运行 `start-backend-lan.cmd`，手机先访问 `http://<电脑Wi-Fi地址>:8080/health` 验证连通，再填写相同后端地址登录。电脑原有网页仍使用 localhost。可运行 `start-apk-share.cmd`，仅分享 android 目录，手机访问 `http://<电脑Wi-Fi地址>:8090/Inspection-Android.apk` 下载，传输完成后关闭该下载服务。
+
+手机使用左下方向键移动，拖动场景观察，轻点表面标注；拖动、长按和点击 UI 不落标。表单打开时停止移动。界面按安全区域缩放，手机字号和控件放大；中文字体打包于 APK。后端地址在手机本地保存，密码和 Token 不持久化保存。
+
+本次验证：Android IL2CPP ARM64 构建成功，APK签名/架构/最低版本/网络配置检查通过；桌面模拟手机布局的登录、注册、设备上报、自助改密与新密码重新登录检查通过，触控逻辑检查覆盖轻点唯一触发、拖动不落标、UI拦截、方向键及长按。本机未连接手机，尚未完成真机安装、输入法和实际触屏手感验证。
+
+重新生成 APK（需已安装 Unity Android Build Support、SDK、NDK、OpenJDK）：
+
+```powershell
+.\build-android.ps1 -BackendUrl 'http://<电脑Wi-Fi地址>:8080'
+```
+
+脚本仅为构建进程使用当前系统代理，并恢复其环境变量，不更改系统代理。项目使用 Google Maven 镜像作为网络受限环境下的依赖来源，保留 google()/mavenCentral()。可通过 `-LocalMavenCache '<本地 Maven 缓存路径>'` 提供已校验的缓存。Unity 初始后端配置通过构建环境变量写入被 Git 忽略的资源文件，实际手机上仍可编辑。构建日志仅保存本机临时目录，可能包含机器环境信息，不应直接公开上传。
+
+字体来源：[Noto CJK 官方仓库](https://github.com/notofonts/noto-cjk)，SIL Open Font License 1.1，许可和版权说明随源码及 APK 打包；未复制 Windows 字体。
 
 先启动 Go，再启动管理端，最后打开 Unity。根目录提供 `start-backend.cmd` 和 `start-admin.cmd`，双击可分别启动；关闭对应窗口即停止服务。
 
@@ -188,7 +208,7 @@ Unity 可选自动集成检查：在运行中的测试后端前启动 Windows �
 - 当前机器 Go 的 race 模式出现系统退出码 `0xc0000139`，未通过 race 环境检查；普通测试正常，不宣称 race 检查通过。
 - 窗口截图自动化连续超时，尚未完成逐项鼠标交互验收；不能把自动集成检查当作人工操作录像。
 - 未完成：LTS 编辑器验证、两段 3～5 分钟演示视频、上传 GitHub/Gitee/网盘获得评审访问链接。当前仅本地交付。
-- 使用轻量 IMGUI 和系统中文字体。标记用球体，以命中点为球心，部分球体会嵌入表面；上传坐标为原始 `hit.point`。
+- 使用轻量 IMGUI 和打包的中文字体。标记用球体，以命中点为球心，部分球体会嵌入表面；上传坐标为原始 `hit.point`。
 - 已提供管理员/巡检员两类权限和发现人分类；尚无分页、删除接口或实时推送。修改状态后 Unity 需主动刷新标记。
 - 网络超时可能发生在服务端已保存之后：重试前到管理端核实，当前未实现幂等去重；不要连续重试。
 - 不提供跨真实 AR 会话定位，也不支持多进程同时写 JSON。当前用于本地考核演示。

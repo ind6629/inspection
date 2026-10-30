@@ -4,6 +4,7 @@ unity/[Tt]emp/
 unity/[Oo]bj/
 unity/[Ll]ogs/
 unity/[Uu]serSettings/
+unity/.utmp/
 unity/Build/
 unity/BuildFixed/
 unity/BuildChinese/
@@ -11,6 +12,9 @@ unity/BuildUsers/
 unity/BuildRegister/
 unity/BuildManaged/
 unity/BuildLocationPassword/
+unity/Assets/Resources/AndroidBackend.txt
+unity/Assets/Resources/AndroidBackend.txt.meta
+android/*.apk
 unity/.vs/
 unity/*.csproj
 unity/*.sln*
