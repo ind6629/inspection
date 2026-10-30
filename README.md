@@ -15,11 +15,13 @@ Unity 桌面虚拟机房 → 射线命中放置标记 → HTTP 上报 → Go JSO
 
 ### 安卓手机版
 
-安卓安装包位于 `android/Inspection-Android.apk`，约31 MiB，应用名“虚拟现场巡检”，包名 `com.inspectiondemo.virtualsite`，版本1.0.0。最低 Android 8.0 / API26，ARM64，OpenGL ES3.1；横屏运行。已通过 APK v2 签名和清单检查，包含 INTERNET 权限及局域网 HTTP 配置，不需要 ARCore、摄像头或定位权限。签名为本地演示调试签名，不是应用商店发布配置。
+安卓安装包位于 `android/Inspection-Android.apk`，约31 MiB，应用名“虚拟现场巡检”，包名 `com.inspectiondemo.virtualsite`，版本1.0.1。最低 Android 8.0 / API26，ARM64，OpenGL ES3.1；横屏运行。已通过 APK v2 签名和清单检查，包含 INTERNET 权限及局域网 HTTP 配置，不需要 ARCore、摄像头或定位权限。签名为本地演示调试签名，不是应用商店发布配置。
 
 安装步骤见 `android/INSTALL.md`。生成 APK 不需要连接手机；USB 仅在选择 USB 传文件或调试时需要。手机与电脑同 Wi-Fi，运行 `start-backend-lan.cmd`，手机先访问 `http://<电脑Wi-Fi地址>:8080/health` 验证连通，再填写相同后端地址登录。电脑原有网页仍使用 localhost。可运行 `start-apk-share.cmd`，仅分享 android 目录，手机访问 `http://<电脑Wi-Fi地址>:8090/Inspection-Android.apk` 下载，传输完成后关闭该下载服务。
 
 手机使用左下方向键移动，拖动场景观察，轻点表面标注；拖动、长按和点击 UI 不落标。表单打开时停止移动。界面按安全区域缩放，手机字号和控件放大；中文字体打包于 APK。后端地址在手机本地保存，密码和 Token 不持久化保存。
+
+1.0.1 输入修复版另存为 `android/Inspection-Android-1.0.1.apk`，版本号2，可覆盖安装。针对手机密码框点击无反应的反馈，改用 Activity 入口，手机输入框显式调用 TouchScreenKeyboard，并从原始触点命中输入区域作为备用入口；登录、注册、改密及问题标题/描述使用相同输入桥接，密码启用安全输入。输入框下方的演示账号、文件路径等说明已删除；错误提示保留。该改动已编译、签名验证及桌面回归，但系统键盘仍待用户手机实际验证，不将电脑模拟视为真机输入测试。
 
 本次验证：Android IL2CPP ARM64 构建成功，APK签名/架构/最低版本/网络配置检查通过；桌面模拟手机布局的登录、注册、设备上报、自助改密与新密码重新登录检查通过，触控逻辑检查覆盖轻点唯一触发、拖动不落标、UI拦截、方向键及长按。本机未连接手机，尚未完成真机安装、输入法和实际触屏手感验证。
 

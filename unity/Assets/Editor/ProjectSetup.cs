@@ -37,7 +37,8 @@ public static class ProjectSetup
         var endpoint=System.Environment.GetEnvironmentVariable("INSPECTION_ANDROID_BACKEND");
         if(!string.IsNullOrWhiteSpace(endpoint)){System.IO.File.WriteAllText("Assets/Resources/AndroidBackend.txt",endpoint.Trim());AssetDatabase.ImportAsset("Assets/Resources/AndroidBackend.txt");}
         PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Android,"com.inspectiondemo.virtualsite");
-        PlayerSettings.bundleVersion="1.0.0";PlayerSettings.Android.bundleVersionCode=1;
+        PlayerSettings.bundleVersion="1.0.1";PlayerSettings.Android.bundleVersionCode=2;
+        PlayerSettings.Android.applicationEntry=AndroidApplicationEntry.Activity;
         PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android,ScriptingImplementation.IL2CPP);
         PlayerSettings.Android.targetArchitectures=AndroidArchitecture.ARM64;
         PlayerSettings.Android.minSdkVersion=AndroidSdkVersions.AndroidApiLevel26;

@@ -119,7 +119,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &1752408366
+--- !u!1 &1967672683
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -127,8 +127,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1752408368}
-  - component: {fileID: 1752408367}
+  - component: {fileID: 1967672685}
+  - component: {fileID: 1967672684}
   m_Layer: 0
   m_Name: InspectionApp
   m_TagString: Untagged
@@ -136,26 +136,26 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1752408367
+--- !u!114 &1967672684
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1752408366}
+  m_GameObject: {fileID: 1967672683}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 19086c6bda3aad946960802e0bd8d33d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::InspectionApp
   backendUrl: http://localhost:8080
---- !u!4 &1752408368
+--- !u!4 &1967672685
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1752408366}
+  m_GameObject: {fileID: 1967672683}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -168,4 +168,4 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 1752408368}
+  - {fileID: 1967672685}

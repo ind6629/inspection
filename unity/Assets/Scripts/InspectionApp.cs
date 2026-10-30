@@ -45,6 +45,11 @@ public class InspectionApp : MonoBehaviour
     string pendingDeviceId="",pendingArea="";
     bool passwordOpen;
     string oldPassword="",newPassword="",newPasswordConfirmation="";
+    sealed class NativeField {public Rect rect;public string value;public bool secure,multiline;public int limit;public TouchScreenKeyboardType kind;}
+    readonly Dictionary<string,NativeField> nativeFields=new Dictionary<string,NativeField>();
+    TouchScreenKeyboard nativeKeyboard;
+    string nativeKeyboardField="";
+    Rect inputArea;
     bool MobileMode => Application.isMobilePlatform||Array.IndexOf(Environment.GetCommandLineArgs(),"-inspection-mobile-preview")>=0;
     readonly TouchNavigation touchNavigation=new TouchNavigation();
     Rect SafeArea => MobileMode?Screen.safeArea:new Rect(0,0,Screen.width,Screen.height);
@@ -86,10 +91,10 @@ public class InspectionApp : MonoBehaviour
         var body=new GameObject("Player");body.transform.position=new Vector3(0,0,-5);player=body.AddComponent<CharacterController>();player.height=1.8f;player.center=new Vector3(0,.9f,0);player.radius=.3f;
         var cameraObject=new GameObject("Inspection Camera");cameraObject.transform.SetParent(body.transform);cameraObject.transform.localPosition=new Vector3(0,1.65f,0);view=cameraObject.AddComponent<Camera>();view.nearClipPlane=.05f;view.backgroundColor=new Color(.12f,.19f,.25f);view.clearFlags=CameraClearFlags.SolidColor;
         view.cullingMask=0;
-        message="请使用巡检员账号登录。";
+        message="";
         if(Array.IndexOf(Environment.GetCommandLineArgs(),"-inspection-smoke")>=0)StartCoroutine(Smoke());
         var args=Environment.GetCommandLineArgs();int preview=Array.IndexOf(args,"-inspection-preview");
-        if(Array.IndexOf(args,"-inspection-preview-register")>=0){registerMode=true;loginUsername="";message="请填写姓名、账号和密码。注册后将自动登录。";}
+        if(Array.IndexOf(args,"-inspection-preview-register")>=0){registerMode=true;loginUsername="";message="";}
         if(preview>=0&&preview+1<args.Length)StartCoroutine(CapturePreview(args[preview+1]));
     }
     void SetSurface(GameObject obj,Color color){var material=new Material(surfaceMaterial);material.color=color;obj.GetComponent<Renderer>().sharedMaterial=material;}
@@ -97,6 +102,7 @@ public class InspectionApp : MonoBehaviour
     void SetHitLocation(RaycastHit hit){hitPosition=hit.point;var surface=hit.collider.GetComponentInParent<InspectionSurface>();pendingDeviceId=surface==null?"":surface.deviceId;pendingArea=surface!=null&&!string.IsNullOrEmpty(surface.area)?surface.area:hit.point.x<2?"机房A区":"机房B区";}
     void Update()
     {
+        UpdateNativeKeyboard();
         if(view==null||currentUser==null)return;
         bool modal=formOpen||selected!=null||passwordOpen;
         if(MobileMode){UpdateTouches(modal);return;}
@@ -137,21 +143,23 @@ public class InspectionApp : MonoBehaviour
     void PutMarker(Issue issue){if(markers.TryGetValue(issue.id,out var marker)){marker.issue=issue;marker.GetComponent<Renderer>().material.color=MarkerColor(issue);return;}var obj=MakeMarker(issue.position.Vector,MarkerColor(issue));obj.name="Issue "+issue.id;marker=obj.AddComponent<InspectionMarker>();marker.issue=issue;markers.Add(issue.id,marker);}
     void OnGUI()
     {
+        if(Event.current.type==EventType.Repaint)nativeFields.Clear();
         GUI.matrix=Matrix4x4.TRS(new Vector3(SafeArea.x,Screen.height-SafeArea.yMax,0),Quaternion.identity,Vector3.one*UiScale);
         GUI.skin.font=chineseFont;
         int fontSize=MobileMode?22:16;GUI.skin.label.fontSize=fontSize;GUI.skin.button.fontSize=fontSize;GUI.skin.textField.fontSize=fontSize;GUI.skin.textArea.fontSize=fontSize;
         GUI.skin.button.fixedHeight=MobileMode?56:32;GUI.skin.textField.fixedHeight=MobileMode?44:28;
         GUI.skin.label.wordWrap=true;
         if(currentUser==null){
+            inputArea=LoginRect;
             GUILayout.BeginArea(LoginRect,GUI.skin.window);
             GUILayout.Label(registerMode?"创建巡检员账号":"虚拟现场巡检 · 巡检员登录");GUILayout.Space(12);
             GUILayout.Label("登录后进入现场，发现的问题将自动记录您的身份。");
             GUI.enabled=!loggingIn;
-            GUILayout.Label("后端地址");backendUrl=GUILayout.TextField(backendUrl);
-            if(registerMode){GUILayout.Label("姓名 / 显示名（必填）");registerName=GUILayout.TextField(registerName,40);}
-            GUILayout.Label("巡检员账号");loginUsername=GUILayout.TextField(loginUsername,100);
-            GUILayout.Label("登录密码");loginPassword=GUILayout.PasswordField(loginPassword,'●',100);
-            if(registerMode){GUILayout.Label("确认密码");confirmPassword=GUILayout.PasswordField(confirmPassword,'●',100);}
+            GUILayout.Label("后端地址");backendUrl=EditField("backend",backendUrl,250,false,false,TouchScreenKeyboardType.URL);
+            if(registerMode){GUILayout.Label("姓名 / 显示名（必填）");registerName=EditField("name",registerName,40);}
+            GUILayout.Label("巡检员账号");loginUsername=EditField("username",loginUsername,100,false,false,TouchScreenKeyboardType.ASCIICapable);
+            GUILayout.Label("登录密码");loginPassword=EditField("login-password",loginPassword,100,true);
+            if(registerMode){GUILayout.Label("确认密码");confirmPassword=EditField("register-confirm",confirmPassword,100,true);}
             GUILayout.Space(15);
             if(GUILayout.Button(loggingIn?"正在处理…":registerMode?"注册并进入巡检现场":"登录并进入巡检现场")){
                 if(string.IsNullOrWhiteSpace(loginUsername)||string.IsNullOrEmpty(loginPassword))message="请输入巡检员账号和密码。";
@@ -160,9 +168,8 @@ public class InspectionApp : MonoBehaviour
                 else if(registerMode)StartCoroutine(Register());
                 else StartCoroutine(Login());
             }
-            if(GUILayout.Button(registerMode?"已有账号？返回登录":"没有账号？注册巡检员")){registerMode=!registerMode;loginUsername="";loginPassword="";confirmPassword="";message=registerMode?"账号3～32位，使用字母、数字、下划线，以字母开头。密码至少6个字符。":"请使用巡检员账号登录。";}
-            GUI.enabled=true;GUILayout.Space(12);GUILayout.Label(message);GUILayout.Space(16);
-            if(!registerMode)GUILayout.Label("演示账号：inspector01 / inspector02\n密码见后端 data/inspector-credentials.txt 文件。\n管理员账号用于网页管理端。");
+            if(GUILayout.Button(registerMode?"已有账号？返回登录":"没有账号？注册巡检员")){CloseNativeKeyboard();registerMode=!registerMode;loginUsername="";loginPassword="";confirmPassword="";message="";}
+            GUI.enabled=true;if(!string.IsNullOrEmpty(message)){GUILayout.Space(12);GUILayout.Label(message);}
             GUILayout.EndArea();return;
         }
         GUILayout.BeginArea(Header,GUI.skin.box);
@@ -174,21 +181,46 @@ public class InspectionApp : MonoBehaviour
         GUILayout.Label(message);GUILayout.EndArea();
         if(MobileMode&&!formOpen&&selected==null&&!passwordOpen){var pad=MovementPad;GUI.Box(new Rect(pad.x+88,pad.y,84,64),"前进");GUI.Box(new Rect(pad.x+88,pad.y+144,84,64),"后退");GUI.Box(new Rect(pad.x,pad.y+72,80,64),"左移");GUI.Box(new Rect(pad.x+180,pad.y+72,80,64),"右移");GUI.Label(new Rect(UiWidth-340,UiHeight-56,320,40),"拖动转动视角，轻点放置标记");}
         if(passwordOpen||formOpen||selected!=null)DrawModalBackground(Modal);
+        inputArea=Modal;
         if(passwordOpen){GUILayout.BeginArea(Modal,GUI.skin.window);GUILayout.Label("修改我的密码");GUILayout.Label("当前账号："+currentUser.username);GUI.enabled=!submitting;
-            GUILayout.Label("原密码");oldPassword=GUILayout.PasswordField(oldPassword,'●',100);GUILayout.Label("新密码（至少6个字符）");newPassword=GUILayout.PasswordField(newPassword,'●',100);GUILayout.Label("确认新密码");newPasswordConfirmation=GUILayout.PasswordField(newPasswordConfirmation,'●',100);GUILayout.Space(16);
+            GUILayout.Label("原密码");oldPassword=EditField("old-password",oldPassword,100,true);GUILayout.Label("新密码（至少6个字符）");newPassword=EditField("new-password",newPassword,100,true);GUILayout.Label("确认新密码");newPasswordConfirmation=EditField("new-confirm",newPasswordConfirmation,100,true);GUILayout.Space(16);
             if(GUILayout.Button(submitting?"正在修改…":"确认修改")){if(string.IsNullOrEmpty(oldPassword))message="请输入原密码。";else if(newPassword.Length<6)message="新密码至少6个字符。";else if(newPassword!=newPasswordConfirmation)message="两次新密码不一致。";else StartCoroutine(ChangePassword());}
-            if(GUILayout.Button("取消")){passwordOpen=false;oldPassword="";newPassword="";newPasswordConfirmation="";message="已取消修改密码。";}GUI.enabled=true;GUILayout.Label(message);GUILayout.Label("修改成功后需要用新密码重新登录，其他设备的登录也会失效。");GUILayout.EndArea();return;}
+            if(GUILayout.Button("取消")){CloseNativeKeyboard();passwordOpen=false;oldPassword="";newPassword="";newPasswordConfirmation="";message="已取消修改密码。";}GUI.enabled=true;GUILayout.Label(message);GUILayout.Label("修改成功后需要用新密码重新登录，其他设备的登录也会失效。");GUILayout.EndArea();return;}
         if(formOpen){GUILayout.BeginArea(Modal,GUI.skin.window);GUILayout.Label("上报巡检问题");GUILayout.Label("发现人："+currentUser.displayName+"（后端自动记录）");GUILayout.Label("区域："+pendingArea+"｜设备："+(string.IsNullOrEmpty(pendingDeviceId)?"场景表面（无设备）":pendingDeviceId));GUILayout.Label("标注位置："+hitPosition.ToString("F3"));
             GUI.enabled=!submitting;
-            GUILayout.Label("问题标题（必填）");title=GUILayout.TextField(title,160);GUILayout.Label("问题描述（选填）");description=GUILayout.TextArea(description,2000,GUILayout.Height(100));GUILayout.Label("优先级");priority=GUILayout.SelectionGrid(priority,priorityLabels,3);
+            GUILayout.Label("问题标题（必填）");title=EditField("issue-title",title,160);GUILayout.Label("问题描述（选填）");description=EditField("issue-description",description,2000,false,true);GUILayout.Label("优先级");priority=GUILayout.SelectionGrid(priority,priorityLabels,3);
             GUILayout.Space(15);if(GUILayout.Button(submitting?"正在提交…":"提交问题",GUILayout.Height(MobileMode?56:36))){if(string.IsNullOrWhiteSpace(title))message="请填写问题标题。";else StartCoroutine(Submit());}
-            if(GUILayout.Button("取消填写")){Destroy(pending);pending=null;formOpen=false;message="已取消，未保存的标记已移除。";}GUI.enabled=true;GUILayout.Label(message);GUILayout.EndArea();
+            if(GUILayout.Button("取消填写")){CloseNativeKeyboard();Destroy(pending);pending=null;formOpen=false;message="已取消，未保存的标记已移除。";}GUI.enabled=true;GUILayout.Label(message);GUILayout.EndArea();
         }else if(selected!=null){GUILayout.BeginArea(Modal,GUI.skin.window);GUILayout.Label("问题详情");GUILayout.Label(selected.title);GUILayout.Label("发现人："+(selected.reporter==null?"历史记录（未记录）":selected.reporter.displayName+"（"+selected.reporter.username+"）"));GUILayout.Label("优先级："+PriorityLabel(selected.priority)+"｜状态："+StatusLabel(selected.status));GUILayout.Label(string.IsNullOrWhiteSpace(selected.description)?"暂无描述":selected.description);GUILayout.Label("区域："+(string.IsNullOrEmpty(selected.area)?"未记录":selected.area)+"｜设备："+(string.IsNullOrEmpty(selected.deviceId)?"未记录 / 场景表面":selected.deviceId));GUILayout.Label("位置："+selected.position.Vector.ToString("F3"));GUILayout.Label("问题编号："+selected.id);GUILayout.Space(20);if(GUILayout.Button("关闭详情"))selected=null;GUILayout.EndArea();}
     }
-    void ClearSession(string reason){touchNavigation.Clear();authToken="";currentUser=null;loginPassword="";selected=null;formOpen=false;passwordOpen=false;oldPassword="";newPassword="";newPasswordConfirmation="";if(pending!=null)Destroy(pending);pending=null;foreach(var marker in markers.Values)if(marker!=null)Destroy(marker.gameObject);markers.Clear();if(view!=null)view.cullingMask=0;message=reason;}
+    string EditField(string key,string value,int limit,bool secure=false,bool multiline=false,TouchScreenKeyboardType kind=TouchScreenKeyboardType.Default){
+        if(!MobileMode){if(multiline)return GUILayout.TextArea(value,limit,GUILayout.Height(100));return secure?GUILayout.PasswordField(value,'●',limit):GUILayout.TextField(value,limit);}
+        var style=new GUIStyle(multiline?GUI.skin.textArea:GUI.skin.textField){fixedHeight=multiline?100:56,alignment=TextAnchor.MiddleLeft,wordWrap=multiline};
+        string visible=string.IsNullOrEmpty(value)?"点击输入":secure?new string('●',value.Length):value;
+        bool clicked=GUILayout.Button(visible,style);
+        if(Event.current.type==EventType.Repaint&&GUI.enabled){var r=GUILayoutUtility.GetLastRect();nativeFields[key]=new NativeField{rect=new Rect(SafeArea.x+(inputArea.x+r.x)*UiScale,Screen.height-SafeArea.yMax+(inputArea.y+r.y)*UiScale,r.width*UiScale,r.height*UiScale),value=value,secure=secure,multiline=multiline,limit=limit,kind=kind};}
+        if(clicked&&Application.isMobilePlatform)OpenNativeKeyboard(key,new NativeField{value=value,secure=secure,multiline=multiline,limit=limit,kind=kind});
+        return value;
+    }
+    void OpenNativeKeyboard(string key,NativeField field){
+        if(nativeKeyboard!=null&&nativeKeyboardField==key&&nativeKeyboard.active)return;
+        CloseNativeKeyboard();nativeKeyboardField=key;TouchScreenKeyboard.hideInput=false;
+        nativeKeyboard=TouchScreenKeyboard.Open(field.value,field.kind,false,field.multiline,field.secure,false,"",field.limit);
+        if(nativeKeyboard==null){nativeKeyboardField="";message="无法打开手机键盘，请重启应用后重试。";}
+    }
+    void UpdateNativeKeyboard(){
+        if(!Application.isMobilePlatform)return;
+        if(nativeKeyboard!=null){SetNativeValue(nativeKeyboardField,nativeKeyboard.text);if(nativeKeyboard.status!=TouchScreenKeyboard.Status.Visible){CloseNativeKeyboard();}}
+        if(loggingIn||submitting||loading)return;
+        for(int i=0;i<Input.touchCount;i++){var t=Input.GetTouch(i);if(t.phase!=TouchPhase.Began)continue;var top=new Vector2(t.position.x,Screen.height-t.position.y);foreach(var pair in nativeFields){if(pair.Value.rect.Contains(top)){OpenNativeKeyboard(pair.Key,pair.Value);return;}}}
+    }
+    void SetNativeValue(string key,string value){switch(key){case "backend":backendUrl=value;break;case "name":registerName=value;break;case "username":loginUsername=value;break;case "login-password":loginPassword=value;break;case "register-confirm":confirmPassword=value;break;case "old-password":oldPassword=value;break;case "new-password":newPassword=value;break;case "new-confirm":newPasswordConfirmation=value;break;case "issue-title":title=value;break;case "issue-description":description=value;break;}}
+    void CloseNativeKeyboard(){if(nativeKeyboard!=null){SetNativeValue(nativeKeyboardField,nativeKeyboard.text);nativeKeyboard.active=false;}nativeKeyboard=null;nativeKeyboardField="";}
+    void ClearSession(string reason){CloseNativeKeyboard();touchNavigation.Clear();authToken="";currentUser=null;loginPassword="";selected=null;formOpen=false;passwordOpen=false;oldPassword="";newPassword="";newPasswordConfirmation="";if(pending!=null)Destroy(pending);pending=null;foreach(var marker in markers.Values)if(marker!=null)Destroy(marker.gameObject);markers.Clear();if(view!=null)view.cullingMask=0;message=reason;}
     void DrawModalBackground(Rect rect){var original=GUI.color;GUI.color=new Color(0,0,0,.55f);GUI.DrawTexture(new Rect(0,0,UiWidth,UiHeight),Texture2D.whiteTexture);GUI.color=new Color(.10f,.15f,.18f,1);GUI.DrawTexture(rect,Texture2D.whiteTexture);GUI.color=original;}
     void Authorize(UnityWebRequest request){request.SetRequestHeader("Authorization","Bearer "+authToken);}
     IEnumerator ChangePassword(){
+        CloseNativeKeyboard();
         submitting=true;message="正在修改密码…";
         using(var request=new UnityWebRequest(backendUrl.TrimEnd('/')+"/api/inspector/password","POST")){
             request.uploadHandler=new UploadHandlerRaw(Encoding.UTF8.GetBytes(JsonUtility.ToJson(new PasswordChangeInput{currentPassword=oldPassword,newPassword=newPassword})));request.downloadHandler=new DownloadHandlerBuffer();request.SetRequestHeader("Content-Type","application/json");Authorize(request);request.timeout=10;yield return request.SendWebRequest();
@@ -198,6 +230,7 @@ public class InspectionApp : MonoBehaviour
         }submitting=false;
     }
     IEnumerator Register(){
+        CloseNativeKeyboard();
         loggingIn=true;message="正在创建巡检员账号…";
         bool created=false;
         using(var request=new UnityWebRequest(backendUrl.TrimEnd('/')+"/api/inspector/register","POST")){
@@ -211,6 +244,7 @@ public class InspectionApp : MonoBehaviour
         if(created){yield return Login();if(currentUser==null)message="账号已注册。"+message;}
     }
     IEnumerator Login(){
+        CloseNativeKeyboard();
         if(Application.isMobilePlatform){PlayerPrefs.SetString("inspection.backend",backendUrl.TrimEnd('/'));PlayerPrefs.Save();}
         loggingIn=true;message="正在验证账号…";
         using(var request=new UnityWebRequest(backendUrl.TrimEnd('/')+"/api/inspector/login","POST")){
@@ -242,6 +276,7 @@ public class InspectionApp : MonoBehaviour
     }
     IEnumerator Submit()
     {
+        CloseNativeKeyboard();
         submitting=true;message="正在提交问题，请稍候…";
         var input=new CreateIssue{title=title.Trim(),description=description.Trim(),priority=priorities[priority],position=new IssuePosition(hitPosition),deviceId=pendingDeviceId,area=pendingArea};
         using(var request=new UnityWebRequest(backendUrl.TrimEnd('/')+"/api/issues","POST")){
