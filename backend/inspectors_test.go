@@ -29,7 +29,7 @@ func runUnityIntegration(t *testing.T, registration bool) {
 	path := filepath.Join(t.TempDir(), "issues.json")
 	s, _ := load(path)
 	hash, _ := bcrypt.GenerateFromPassword([]byte("unity-test-password"), bcrypt.MinCost)
-	s.inspectors = &inspectorAuth{users: []inspectorAccount{{Reporter{"unity-test-user", "unity-test", "测试巡检员"}, string(hash)}}, sessions: map[string]inspectorSession{}}
+	s.inspectors = &inspectorAuth{users: []inspectorAccount{{Reporter{"unity-test-user", "unity-test", "测试巡检员"}, string(hash), false}}, sessions: map[string]inspectorSession{}}
 	username := "unity-test"
 	registrationFlag := "0"
 	if registration {
@@ -117,7 +117,7 @@ func TestInspectorAttributionIsolationAndPersistence(t *testing.T) {
 	hash, _ := bcrypt.GenerateFromPassword([]byte("test-user-password"), bcrypt.MinCost)
 	a := Reporter{"u-a", "inspector-a", "巡检员甲"}
 	b := Reporter{"u-b", "inspector-b", "巡检员乙"}
-	s.inspectors = &inspectorAuth{users: []inspectorAccount{{a, string(hash)}, {b, string(hash)}}, sessions: map[string]inspectorSession{}}
+	s.inspectors = &inspectorAuth{users: []inspectorAccount{{a, string(hash), false}, {b, string(hash), false}}, sessions: map[string]inspectorSession{}}
 	s.auth = &adminAuth{username: "admin", passwordHash: sha256.Sum256([]byte("test-admin-password")), sessions: map[string]time.Time{}}
 	login := func(username string) string {
 		w := inspectorCall(s, "POST", "/api/inspector/login", `{"username":"`+username+`","password":"test-user-password"}`, "")

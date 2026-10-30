@@ -9,10 +9,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
+
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 type Reporter struct {
@@ -23,6 +22,7 @@ type Reporter struct {
 type inspectorAccount struct {
 	Reporter
 	PasswordHash string `json:"passwordHash"`
+	Disabled     bool   `json:"disabled"`
 }
 type inspectorSession struct {
 	User    Reporter
@@ -57,7 +57,7 @@ func newInspectorAuth(dir string) (*inspectorAuth, error) {
 				return nil, err
 			}
 			user := Reporter{fmt.Sprintf("inspector-%02d", i), fmt.Sprintf("inspector%02d", i), fmt.Sprintf("巡检员%d", i)}
-			a.users = append(a.users, inspectorAccount{user, string(hash)})
+			a.users = append(a.users, inspectorAccount{Reporter: user, PasswordHash: string(hash)})
 			credentials += fmt.Sprintf("%s（%s）\n密码：%s\n\n", user.Username, user.DisplayName, password)
 		}
 		if err = os.MkdirAll(dir, 0700); err != nil {
@@ -103,8 +103,15 @@ func (a *inspectorAuth) require(w http.ResponseWriter, r *http.Request) *Reporte
 		fail(w, 401, "巡检员登录已失效，请重新登录")
 		return nil
 	}
-	user := session.User
-	return &user
+	for _, user := range a.users {
+		if user.ID == session.User.ID && !user.Disabled {
+			profile := user.Reporter
+			return &profile
+		}
+	}
+	delete(a.sessions, token)
+	fail(w, 401, "账号已停用或不存在，请联系管理员")
+	return nil
 }
 func (a *inspectorAuth) handle(w http.ResponseWriter, r *http.Request) bool {
 	switch r.URL.Path {
@@ -114,31 +121,9 @@ func (a *inspectorAuth) handle(w http.ResponseWriter, r *http.Request) bool {
 			fail(w, 405, "method not allowed")
 			return true
 		}
-		var in struct {
-			Username    string `json:"username"`
-			DisplayName string `json:"displayName"`
-			Password    string `json:"password"`
-		}
+		var in accountInput
 		if err := decode(w, r, &in); err != nil {
 			fail(w, 400, "注册参数不正确")
-			return true
-		}
-		in.Username = strings.ToLower(strings.TrimSpace(in.Username))
-		in.DisplayName = strings.TrimSpace(in.DisplayName)
-		if !regexp.MustCompile(`^[a-z][a-z0-9_]{2,31}$`).MatchString(in.Username) {
-			fail(w, 400, "账号需为3～32位小写字母、数字或下划线，并以字母开头")
-			return true
-		}
-		if in.Username == "admin" {
-			fail(w, 400, "该账号名称不可用于巡检员注册")
-			return true
-		}
-		if utf8.RuneCountInString(in.DisplayName) < 1 || utf8.RuneCountInString(in.DisplayName) > 40 {
-			fail(w, 400, "姓名需为1～40个字符")
-			return true
-		}
-		if utf8.RuneCountInString(in.Password) < 6 || len(in.Password) > 72 {
-			fail(w, 400, "密码至少6个字符，且不超过72字节")
 			return true
 		}
 		now := time.Now()
@@ -151,30 +136,13 @@ func (a *inspectorAuth) handle(w http.ResponseWriter, r *http.Request) bool {
 			fail(w, 429, "注册次数过多，请一分钟后重试")
 			return true
 		}
-		for _, user := range a.users {
-			if strings.EqualFold(user.Username, in.Username) {
-				fail(w, 409, "该账号已注册，请换一个账号或直接登录")
-				return true
-			}
+		user, code, message := a.createAccount(in)
+		if user == nil {
+			fail(w, code, message)
+			return true
 		}
 		a.registrations++
-		hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), bcrypt.DefaultCost)
-		if err != nil {
-			fail(w, 500, "注册失败，请稍后重试")
-			return true
-		}
-		raw := make([]byte, 16)
-		if _, err = rand.Read(raw); err != nil {
-			fail(w, 500, "无法创建用户编号")
-			return true
-		}
-		user := inspectorAccount{Reporter{"inspector-" + hex.EncodeToString(raw), in.Username, in.DisplayName}, string(hash)}
-		next := append(append([]inspectorAccount{}, a.users...), user)
-		if err = a.saveUsers(next); err != nil {
-			fail(w, 500, "账号保存失败，请检查服务端后重试")
-			return true
-		}
-		reply(w, 201, user.Reporter)
+		reply(w, 201, user)
 		return true
 	case "/api/inspector/login":
 		w.Header().Set("Cache-Control", "no-store")
@@ -201,6 +169,10 @@ func (a *inspectorAuth) handle(w http.ResponseWriter, r *http.Request) bool {
 		}
 		for _, u := range a.users {
 			if strings.EqualFold(u.Username, strings.TrimSpace(in.Username)) && bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(in.Password)) == nil {
+				if u.Disabled {
+					fail(w, 403, "账号已停用，请联系管理员")
+					return true
+				}
 				raw := make([]byte, 32)
 				if _, err := rand.Read(raw); err != nil {
 					fail(w, 500, "登录失败，请重试")

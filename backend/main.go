@@ -138,6 +138,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if s.auth != nil && s.auth.handle(w, r, s) {
 		return
 	}
+	if r.URL.Path == "/api/admin/users" || strings.HasPrefix(r.URL.Path, "/api/admin/users/") {
+		if s.auth == nil {
+			fail(w, 401, "请先登录管理员账号")
+			return
+		}
+		if !s.auth.require(w, r) {
+			return
+		}
+		s.handleAdminUsers(w, r)
+		return
+	}
 	if s.inspectors != nil && s.inspectors.handle(w, r) {
 		return
 	}

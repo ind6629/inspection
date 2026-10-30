@@ -64,25 +64,42 @@ npm run build
 
 顶部可修改后端地址。Unity 使用 `Input` 传统输入 API；如果另建工程迁移脚本，需启用 Input Manager 或 Both。层 8 为可点击表面，层 9 为标记。世界布局固定，不要随意移动场景原点后继续使用原数据。
 
-可使用 `ProjectSetup.BuildWindows` 批处理方法生成 `unity/BuildRegister/Inspection.exe`，或使用 Unity Build Profiles。构建目录默认不纳入 Git。`Build/` 是粉色材质旧版，`BuildFixed/` 是英文修复版，请运行 `BuildRegister/` 支持注册的新版本。
+可使用 `ProjectSetup.BuildWindows` 批处理方法生成 `unity/BuildManaged/Inspection.exe`，或使用 Unity Build Profiles。构建目录默认不纳入 Git。`Build/` 是粉色材质旧版，`BuildFixed/` 是英文修复版，请运行 `BuildManaged/` 支持账号管理联动的新版本。
 
 场景材质明确引用 `Resources/SiteSurface.mat` 和项目内置 `SiteSurface.shader`，不依赖运行时 Primitive 的默认材质。可传入 `-inspection-preview <绝对PNG路径>` 在运行两秒后截图，用于实际图形构建检查。
 
 ## 接口约定
 
+### 管理员用户账户管理
+
+登录 React 管理端后，点击顶部“用户管理”。支持查看巡检员账号、姓名、启用状态和上报数量；搜索姓名/账号，筛选账户状态；创建巡检员、修改姓名、启用/停用、重置密码。操作弹窗先填写/确认再保存，服务错误会保留填写内容供重试。
+
+该页面仅管理巡检员，不创建或修改管理员。用户 ID 和登录账号不可更改，历史问题始终保留上报时的发现人快照。修改姓名仅影响后续登录和新问题；下拉筛选显示当前姓名，历史详情显示当时姓名。使用停用保留业务关联，不提供物理删除。
+
+停用立即撤销现有会话并阻止登录；启用后可以重新登录。密码重置和修改姓名也会撤销现有会话。所有变更持久化到同一 `data/inspectors.json`，保存成功后才更新内存和撤销会话。旧数据缺失 disabled 字段时默认启用。重置后初始演示凭据文件不会更新，请以新密码为准；界面和接口不提供查看现有密码/哈希的功能。
+
+| 方法 | 管理端接口 | 内容 |
+|---|---|---|
+| GET | `/api/admin/users` | 巡检员列表：id、username、displayName、disabled、issueCount |
+| POST | `/api/admin/users` | 创建巡检员，参数 username/displayName/password |
+| PATCH | `/api/admin/users/{id}` | 修改 displayName 或 disabled（布尔值） |
+| POST | `/api/admin/users/{id}/password` | 重置密码，参数 password |
+
+以上接口全部要求管理员 Cookie 和允许的 Origin，巡检员 Token 无管理权限。返回值仅为安全的用户摘要，参数校验和 bcrypt 密码处理复用注册逻辑。
+
 ### 巡检员登录与发现人分类
 
 - 启动后端时首次生成两个演示账号 `inspector01` / `inspector02`，显示名为“巡检员1”/“巡检员2”。本机随机密码见 `backend/data/inspector-credentials.txt`，账号 ID、姓名及 bcrypt 密码哈希保存于 `backend/data/inspectors.json`；两者都在 Git 忽略目录内。重启沿用账号，不重新生成密码。管理员账号不能在巡检员登录入口使用。
-- Unity 新版程序：`unity/BuildRegister/Inspection.exe`。先登录，再进入现场；顶部显示当前巡检员，可以退出/切换。切换时清除前一用户的标记和未提交内容，重新加载当前用户自己的记录。登录前不能移动或标注。启动后默认显示登录页，不在磁盘保存 Token 或巡检员密码。
+- Unity 新版程序：`unity/BuildManaged/Inspection.exe`。先登录，再进入现场；顶部显示当前巡检员，可以退出/切换。切换时清除前一用户的标记和未提交内容，重新加载当前用户自己的记录。登录前不能移动或标注。启动后默认显示登录页，不在磁盘保存 Token 或巡检员密码。
 - `POST /api/inspector/login`：`{"username":"inspector01","password":"<本机密码>"}`，返回 `{token,user:{id,username,displayName},expiresAt}`。会话有效期 8 小时，Go 重启后需要重新登录；退出接口为 `POST /api/inspector/logout`，身份检查为 `GET /api/inspector/me`。
 - 巡检员请求头：`Authorization: Bearer <token>`。创建和读取 `/api/issues` 均需登录；读取仅返回本人数据。巡检员不能调用管理端接口或修改处理状态。管理员仍使用独立 HttpOnly Cookie 会话。
 - 新 Issue 增加只读 `reporter:{id,username,displayName}`。发现人完全由后端登录身份产生；创建请求中传入 reporter 会被拒绝，不能冒充其他用户。姓名按上报时保存快照；旧问题 `reporter=null`，显示“历史记录（未记录发现人）”，不会猜测或伪造原始发现人。
 - React 增加“发现人”列、详情中的账号姓名；在“问题清单”标题旁提供“发现人”下拉框，选择巡检员后筛选列表。零上报的巡检员也在选项中显示，支持全部发现人和历史记录，可与状态、标题搜索组合。`GET /api/admin/inspectors` 仅管理员可用，只返回 ID/账号/姓名，不返回密码或哈希。
-- 当前预置两位演示巡检员，并支持 Unity 自助注册；尚无管理员用户管理/找回密码页面。不要公开本机生成的密码文件。
+- 当前预置两位演示巡检员，并支持 Unity 自助注册；已提供管理员用户管理，尚无找回密码页面。不要公开本机生成的密码文件。
 
 ### 巡检员自助注册
 
-运行 `unity/BuildRegister/Inspection.exe`，在登录页点击“没有账号？注册巡检员”，填写姓名、账号、密码和确认密码。注册成功自动登录进入现场；如自动登录失败，可使用刚注册的账号重新登录。
+运行 `unity/BuildManaged/Inspection.exe`，在登录页点击“没有账号？注册巡检员”，填写姓名、账号、密码和确认密码。注册成功自动登录进入现场；如自动登录失败，可使用刚注册的账号重新登录。
 
 账号为3～32位字母、数字、下划线，字母开头，服务端统一转小写；姓名1～40个字符；密码至少6个字符且 UTF-8 不超过72字节。重名返回409，注册参数错误返回400。管理端保留独立管理员账号，不允许注册时指定管理员角色。
 
@@ -94,7 +111,7 @@ npm run build
 
 ```powershell
 cd backend
-$env:INSPECTION_UNITY_EXE='<绝对路径>/unity/BuildRegister/Inspection.exe'
+$env:INSPECTION_UNITY_EXE='<绝对路径>/unity/BuildManaged/Inspection.exe'
 go test -v -run 'TestUnityPlayer(Integration|Registration)' .
 ```
 
@@ -151,7 +168,7 @@ Unity 可选自动集成检查：在运行中的测试后端前启动 Windows �
 - 窗口截图自动化连续超时，尚未完成逐项鼠标交互验收；不能把自动集成检查当作人工操作录像。
 - 未完成：LTS 编辑器验证、两段 3～5 分钟演示视频、上传 GitHub/Gitee/网盘获得评审访问链接。当前仅本地交付。
 - 使用轻量 IMGUI 和系统中文字体。标记用球体，以命中点为球心，部分球体会嵌入表面；上传坐标为原始 `hit.point`。
-- 已提供管理员/巡检员两类权限和发现人分类；尚无分页、删除接口、用户管理页面或实时推送。修改状态后 Unity 需主动刷新标记。
+- 已提供管理员/巡检员两类权限和发现人分类；尚无分页、删除接口或实时推送。修改状态后 Unity 需主动刷新标记。
 - 网络超时可能发生在服务端已保存之后：重试前到管理端核实，当前未实现幂等去重；不要连续重试。
 - 不提供跨真实 AR 会话定位，也不支持多进程同时写 JSON。当前用于本地考核演示。
 

@@ -166,7 +166,7 @@ public class InspectionApp : MonoBehaviour
             request.uploadHandler=new UploadHandlerRaw(Encoding.UTF8.GetBytes(JsonUtility.ToJson(new LoginInput{username=loginUsername.Trim(),password=loginPassword})));request.downloadHandler=new DownloadHandlerBuffer();request.SetRequestHeader("Content-Type","application/json");request.timeout=10;
             yield return request.SendWebRequest();
             if(request.result==UnityWebRequest.Result.Success){try{var result=JsonUtility.FromJson<InspectorLogin>(request.downloadHandler.text);if(result.user==null||string.IsNullOrEmpty(result.token))throw new Exception();authToken=result.token;currentUser=result.user;loginPassword="";view.cullingMask=-1;message="登录成功，欢迎"+currentUser.displayName+"。";}catch(Exception){message="登录响应格式不正确。";}}
-            else{Debug.LogWarning("Inspector login failed: HTTP "+request.responseCode+" "+request.error);message=request.responseCode==401?"账号或密码错误，请重新输入。":request.responseCode==429?"尝试次数过多，请一分钟后重试。":"无法登录，请检查后端服务和地址。";}
+            else{Debug.LogWarning("Inspector login failed: HTTP "+request.responseCode+" "+request.error);message=request.responseCode==401?"账号或密码错误，请重新输入。":request.responseCode==403?"账号已停用，请联系管理员。":request.responseCode==429?"尝试次数过多，请一分钟后重试。":"无法登录，请检查后端服务和地址。";}
         }
         loggingIn=false;if(currentUser!=null)yield return Refresh();
     }
