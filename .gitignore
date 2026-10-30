@@ -8,6 +8,7 @@ unity/Build/
 unity/BuildFixed/
 unity/BuildChinese/
 unity/BuildUsers/
+unity/BuildRegister/
 unity/.vs/
 unity/*.csproj
 unity/*.sln*

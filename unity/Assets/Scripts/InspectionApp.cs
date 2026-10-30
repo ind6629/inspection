@@ -9,6 +9,7 @@ using UnityEngine.Networking;
 [Serializable] public class CreateIssue { public string title,description,priority; public IssuePosition position; }
 [Serializable] public class Reporter { public string id,username,displayName; }
 [Serializable] public class LoginInput { public string username,password; }
+[Serializable] public class RegisterInput { public string username,displayName,password; }
 [Serializable] public class InspectorLogin { public string token,expiresAt; public Reporter user; }
 [Serializable] public class Issue { public string id,title,description,priority,status,createdAt,updatedAt; public IssuePosition position; public Reporter reporter; }
 [Serializable] public class IssueList { public Issue[] items; }
@@ -37,6 +38,9 @@ public class InspectionApp : MonoBehaviour
     string loginUsername="inspector01",loginPassword="",authToken="";
     Reporter currentUser;
     bool loggingIn;
+    bool registerMode;
+    string registerName="",confirmPassword="";
+    Rect LoginRect { get {float height=registerMode?660:570;return new Rect((Screen.width-520)/2f,Mathf.Max(16,(Screen.height-height)/2f),520,height);} }
     Rect Header => new Rect(16,16,520,250);
     Rect Modal => new Rect((Screen.width-520)/2f, Mathf.Max(20,(Screen.height-540)/2f),520,540);
 
@@ -70,6 +74,7 @@ public class InspectionApp : MonoBehaviour
         message="请使用巡检员账号登录。";
         if(Array.IndexOf(Environment.GetCommandLineArgs(),"-inspection-smoke")>=0)StartCoroutine(Smoke());
         var args=Environment.GetCommandLineArgs();int preview=Array.IndexOf(args,"-inspection-preview");
+        if(Array.IndexOf(args,"-inspection-preview-register")>=0){registerMode=true;loginUsername="";message="请填写姓名、账号和密码。注册后将自动登录。";}
         if(preview>=0&&preview+1<args.Length)StartCoroutine(CapturePreview(args[preview+1]));
     }
     void SetSurface(GameObject obj,Color color){var material=new Material(surfaceMaterial);material.color=color;obj.GetComponent<Renderer>().sharedMaterial=material;}
@@ -104,20 +109,26 @@ public class InspectionApp : MonoBehaviour
         GUI.skin.button.fixedHeight=32;GUI.skin.textField.fixedHeight=28;
         GUI.skin.label.wordWrap=true;
         if(currentUser==null){
-            GUILayout.BeginArea(Modal,GUI.skin.window);
-            GUILayout.Label("虚拟现场巡检 · 巡检员登录");GUILayout.Space(12);
+            GUILayout.BeginArea(LoginRect,GUI.skin.window);
+            GUILayout.Label(registerMode?"创建巡检员账号":"虚拟现场巡检 · 巡检员登录");GUILayout.Space(12);
             GUILayout.Label("登录后进入现场，发现的问题将自动记录您的身份。");
             GUI.enabled=!loggingIn;
             GUILayout.Label("后端地址");backendUrl=GUILayout.TextField(backendUrl);
+            if(registerMode){GUILayout.Label("姓名 / 显示名（必填）");registerName=GUILayout.TextField(registerName,40);}
             GUILayout.Label("巡检员账号");loginUsername=GUILayout.TextField(loginUsername,100);
             GUILayout.Label("登录密码");loginPassword=GUILayout.PasswordField(loginPassword,'●',100);
+            if(registerMode){GUILayout.Label("确认密码");confirmPassword=GUILayout.PasswordField(confirmPassword,'●',100);}
             GUILayout.Space(15);
-            if(GUILayout.Button(loggingIn?"正在登录…":"登录并进入巡检现场")){
+            if(GUILayout.Button(loggingIn?"正在处理…":registerMode?"注册并进入巡检现场":"登录并进入巡检现场")){
                 if(string.IsNullOrWhiteSpace(loginUsername)||string.IsNullOrEmpty(loginPassword))message="请输入巡检员账号和密码。";
+                else if(registerMode&&string.IsNullOrWhiteSpace(registerName))message="请填写姓名或显示名。";
+                else if(registerMode&&loginPassword!=confirmPassword)message="两次输入的密码不一致。";
+                else if(registerMode)StartCoroutine(Register());
                 else StartCoroutine(Login());
             }
+            if(GUILayout.Button(registerMode?"已有账号？返回登录":"没有账号？注册巡检员")){registerMode=!registerMode;loginUsername="";loginPassword="";confirmPassword="";message=registerMode?"账号3～32位，使用字母、数字、下划线，以字母开头。密码至少6个字符。":"请使用巡检员账号登录。";}
             GUI.enabled=true;GUILayout.Space(12);GUILayout.Label(message);GUILayout.Space(16);
-            GUILayout.Label("演示账号：inspector01 / inspector02\n密码见后端 data/inspector-credentials.txt 文件。\n管理员账号用于网页管理端。");
+            if(!registerMode)GUILayout.Label("演示账号：inspector01 / inspector02\n密码见后端 data/inspector-credentials.txt 文件。\n管理员账号用于网页管理端。");
             GUILayout.EndArea();return;
         }
         GUILayout.BeginArea(Header,GUI.skin.box);
@@ -136,6 +147,19 @@ public class InspectionApp : MonoBehaviour
     }
     void ClearSession(string reason){authToken="";currentUser=null;loginPassword="";selected=null;formOpen=false;if(pending!=null)Destroy(pending);pending=null;foreach(var marker in markers.Values)if(marker!=null)Destroy(marker.gameObject);markers.Clear();if(view!=null)view.cullingMask=0;message=reason;}
     void Authorize(UnityWebRequest request){request.SetRequestHeader("Authorization","Bearer "+authToken);}
+    IEnumerator Register(){
+        loggingIn=true;message="正在创建巡检员账号…";
+        bool created=false;
+        using(var request=new UnityWebRequest(backendUrl.TrimEnd('/')+"/api/inspector/register","POST")){
+            var data=new RegisterInput{username=loginUsername.Trim().ToLowerInvariant(),displayName=registerName.Trim(),password=loginPassword};
+            request.uploadHandler=new UploadHandlerRaw(Encoding.UTF8.GetBytes(JsonUtility.ToJson(data)));request.downloadHandler=new DownloadHandlerBuffer();request.SetRequestHeader("Content-Type","application/json");request.timeout=10;
+            yield return request.SendWebRequest();
+            if(request.result==UnityWebRequest.Result.Success){created=true;loginUsername=data.username;registerMode=false;confirmPassword="";registerName="";}
+            else{message="注册失败，请检查后端。若请求超时，请先尝试用该账号登录。";try{var error=JsonUtility.FromJson<ApiError>(request.downloadHandler.text);if(error?.error!=null)message=error.error.message;}catch(Exception){}}
+        }
+        loggingIn=false;
+        if(created){yield return Login();if(currentUser==null)message="账号已注册。"+message;}
+    }
     IEnumerator Login(){
         loggingIn=true;message="正在验证账号…";
         using(var request=new UnityWebRequest(backendUrl.TrimEnd('/')+"/api/inspector/login","POST")){
@@ -184,7 +208,7 @@ public class InspectionApp : MonoBehaviour
     {
         loginUsername=Environment.GetEnvironmentVariable("INSPECTION_SMOKE_USER")??"inspector01";
         loginPassword=Environment.GetEnvironmentVariable("INSPECTION_SMOKE_PASSWORD")??"";
-        yield return Login();
+        if(Environment.GetEnvironmentVariable("INSPECTION_SMOKE_REGISTER")=="1"){registerName="集成检查巡检员";confirmPassword=loginPassword;yield return Register();}else yield return Login();
         if(currentUser==null){Debug.LogError("SMOKE_FAIL: inspector login failed: "+message);Application.Quit(1);yield break;}
         float deadline=Time.realtimeSinceStartup+20;
         while(loading&&Time.realtimeSinceStartup<deadline)yield return null;

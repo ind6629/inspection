@@ -38,7 +38,7 @@ npm run dev
 
 管理端新增中文登录页：默认账号 `admin`，首次启动 Go 后随机密码写入 `backend/data/admin-password.txt`，请在本机读取。该文件和业务数据都被 Git 忽略，不打包公开。可通过 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 环境变量配置，密码至少 6 个字符；不要将真实凭据写进源码。密码文件已存在时沿用，不会每次启动变化。
 
-会话为服务端内存记录和 HttpOnly、SameSite=Strict Cookie，有效期 8 小时，刷新页面保留，退出或 Go 重启后失效。登录失败 10 次后在当前一分钟窗口内限制重试。本地 HTTP 下 Cookie 无 Secure 属性，HTTPS 下自动开启；该实现用于本地演示，不包含注册、找回密码或公网部署配套。
+会话为服务端内存记录和 HttpOnly、SameSite=Strict Cookie，有效期 8 小时，刷新页面保留，退出或 Go 重启后失效。登录失败 10 次后在当前一分钟窗口内限制重试。本地 HTTP 下 Cookie 无 Secure 属性，HTTPS 下自动开启；该实现用于本地演示，不包含管理员注册、找回密码或公网部署配套。
 
 新增接口：`POST /api/auth/login`（username/password）、`GET /api/auth/me`、`POST /api/auth/logout`、`GET /api/admin/issues`。管理端列表和状态修改需要管理员登录；Unity 的 `GET/POST /api/issues` 现在要求巡检员 Bearer 登录凭据，列表仅返回本人记录。旧版无登录 Unity 程序已不再支持提交，请使用 BuildUsers 新版本。浏览器通过 credentials=include 携带 Cookie，并校验管理写操作 Origin。
 
@@ -64,7 +64,7 @@ npm run build
 
 顶部可修改后端地址。Unity 使用 `Input` 传统输入 API；如果另建工程迁移脚本，需启用 Input Manager 或 Both。层 8 为可点击表面，层 9 为标记。世界布局固定，不要随意移动场景原点后继续使用原数据。
 
-可使用 `ProjectSetup.BuildWindows` 批处理方法生成 `unity/BuildUsers/Inspection.exe`，或使用 Unity Build Profiles。构建目录默认不纳入 Git。`Build/` 是粉色材质旧版，`BuildFixed/` 是英文修复版，请运行 `BuildUsers/` 巡检员登录新版本。
+可使用 `ProjectSetup.BuildWindows` 批处理方法生成 `unity/BuildRegister/Inspection.exe`，或使用 Unity Build Profiles。构建目录默认不纳入 Git。`Build/` 是粉色材质旧版，`BuildFixed/` 是英文修复版，请运行 `BuildRegister/` 支持注册的新版本。
 
 场景材质明确引用 `Resources/SiteSurface.mat` 和项目内置 `SiteSurface.shader`，不依赖运行时 Primitive 的默认材质。可传入 `-inspection-preview <绝对PNG路径>` 在运行两秒后截图，用于实际图形构建检查。
 
@@ -73,22 +73,34 @@ npm run build
 ### 巡检员登录与发现人分类
 
 - 启动后端时首次生成两个演示账号 `inspector01` / `inspector02`，显示名为“巡检员1”/“巡检员2”。本机随机密码见 `backend/data/inspector-credentials.txt`，账号 ID、姓名及 bcrypt 密码哈希保存于 `backend/data/inspectors.json`；两者都在 Git 忽略目录内。重启沿用账号，不重新生成密码。管理员账号不能在巡检员登录入口使用。
-- Unity 新版程序：`unity/BuildUsers/Inspection.exe`。先登录，再进入现场；顶部显示当前巡检员，可以退出/切换。切换时清除前一用户的标记和未提交内容，重新加载当前用户自己的记录。登录前不能移动或标注。启动后默认显示登录页，不在磁盘保存 Token 或巡检员密码。
+- Unity 新版程序：`unity/BuildRegister/Inspection.exe`。先登录，再进入现场；顶部显示当前巡检员，可以退出/切换。切换时清除前一用户的标记和未提交内容，重新加载当前用户自己的记录。登录前不能移动或标注。启动后默认显示登录页，不在磁盘保存 Token 或巡检员密码。
 - `POST /api/inspector/login`：`{"username":"inspector01","password":"<本机密码>"}`，返回 `{token,user:{id,username,displayName},expiresAt}`。会话有效期 8 小时，Go 重启后需要重新登录；退出接口为 `POST /api/inspector/logout`，身份检查为 `GET /api/inspector/me`。
 - 巡检员请求头：`Authorization: Bearer <token>`。创建和读取 `/api/issues` 均需登录；读取仅返回本人数据。巡检员不能调用管理端接口或修改处理状态。管理员仍使用独立 HttpOnly Cookie 会话。
 - 新 Issue 增加只读 `reporter:{id,username,displayName}`。发现人完全由后端登录身份产生；创建请求中传入 reporter 会被拒绝，不能冒充其他用户。姓名按上报时保存快照；旧问题 `reporter=null`，显示“历史记录（未记录发现人）”，不会猜测或伪造原始发现人。
 - React 增加“发现人”列、详情中的账号姓名；在“问题清单”标题旁提供“发现人”下拉框，选择巡检员后筛选列表。零上报的巡检员也在选项中显示，支持全部发现人和历史记录，可与状态、标题搜索组合。`GET /api/admin/inspectors` 仅管理员可用，只返回 ID/账号/姓名，不返回密码或哈希。
-- 当前只预置两位演示巡检员，尚无注册/用户管理页面；如需增加真实人员，可进一步添加管理员账号管理功能。不要公开本机生成的密码文件。
+- 当前预置两位演示巡检员，并支持 Unity 自助注册；尚无管理员用户管理/找回密码页面。不要公开本机生成的密码文件。
 
-### 自动集成检查
+### 巡检员自助注册
+
+运行 `unity/BuildRegister/Inspection.exe`，在登录页点击“没有账号？注册巡检员”，填写姓名、账号、密码和确认密码。注册成功自动登录进入现场；如自动登录失败，可使用刚注册的账号重新登录。
+
+账号为3～32位字母、数字、下划线，字母开头，服务端统一转小写；姓名1～40个字符；密码至少6个字符且 UTF-8 不超过72字节。重名返回409，注册参数错误返回400。管理端保留独立管理员账号，不允许注册时指定管理员角色。
+
+`POST /api/inspector/register` 请求 `{username,displayName,password}`，成功201返回 `{id,username,displayName}`，不返回密码或哈希。用户通过 bcrypt 哈希后写入 `data/inspectors.json`，采用临时文件和替换保存，失败不修改内存；每分钟最多处理5次有效格式的新账号注册尝试。新用户在管理员点击刷新后进入发现人下拉选项，尚无上报时也可选择。
+
+自主注册的密码不会写入演示凭据文件，请自行记住。该开放注册用于本地演示，尚无邀请码、审核、找回密码或公网防滥用配套。
+
+### 自动集成检查（含注册）
 
 ```powershell
 cd backend
-$env:INSPECTION_UNITY_EXE='<绝对路径>/unity/BuildUsers/Inspection.exe'
-go test -v -run TestUnityPlayerIntegration .
+$env:INSPECTION_UNITY_EXE='<绝对路径>/unity/BuildRegister/Inspection.exe'
+go test -v -run 'TestUnityPlayer(Integration|Registration)' .
 ```
 
 该测试启动独立临时 HTTP 服务，使用测试专用账号和临时数据，通过真实 Windows 程序完成登录→射线命中→上报→恢复自己的标记，并检查持久化的 reporter。不会读取真实巡检员密码或写入演示服务的数据。普通 `go test ./...` 不设置该变量时跳过这个可选检查。
+
+`TestUnityPlayerRegistration` 额外验证真实 Windows 程序注册→自动登录→上报→发现人持久化，整个过程同样只写临时测试数据。
 
 如果直接运行 Windows 程序的 `-inspection-smoke` 模式，需用环境变量 `INSPECTION_SMOKE_USER`、`INSPECTION_SMOKE_PASSWORD`、`INSPECTION_SMOKE_BACKEND` 提供测试账号和独立后端；不要把真实密码写在命令行参数或提交到源码。
 

@@ -18,6 +18,10 @@ import (
 // Opt-in: exercise the real Windows Unity player against an isolated HTTP server.
 // Uses disposable test credentials, never reads local operator passwords.
 func TestUnityPlayerIntegration(t *testing.T) {
+	runUnityIntegration(t, false)
+}
+func TestUnityPlayerRegistration(t *testing.T) { runUnityIntegration(t, true) }
+func runUnityIntegration(t *testing.T, registration bool) {
 	executable := os.Getenv("INSPECTION_UNITY_EXE")
 	if executable == "" {
 		t.Skip("set INSPECTION_UNITY_EXE to enable player integration")
@@ -26,6 +30,14 @@ func TestUnityPlayerIntegration(t *testing.T) {
 	s, _ := load(path)
 	hash, _ := bcrypt.GenerateFromPassword([]byte("unity-test-password"), bcrypt.MinCost)
 	s.inspectors = &inspectorAuth{users: []inspectorAccount{{Reporter{"unity-test-user", "unity-test", "测试巡检员"}, string(hash)}}, sessions: map[string]inspectorSession{}}
+	username := "unity-test"
+	registrationFlag := "0"
+	if registration {
+		username = "unity_test"
+		registrationFlag = "1"
+		s.inspectors.users = nil
+		s.inspectors.path = filepath.Join(filepath.Dir(path), "inspectors.json")
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Logf("Unity HTTP: %s %s", r.Method, r.URL.Path)
 		s.ServeHTTP(w, r)
@@ -36,15 +48,57 @@ func TestUnityPlayerIntegration(t *testing.T) {
 	defer cancel()
 	command := exec.CommandContext(ctx, executable, "-batchmode", "-nographics", "-inspection-smoke", "-logFile", logPath)
 	localURL := strings.Replace(server.URL, "127.0.0.1", "localhost", 1)
-	command.Env = append(os.Environ(), "INSPECTION_SMOKE_USER=unity-test", "INSPECTION_SMOKE_PASSWORD=unity-test-password", "INSPECTION_SMOKE_BACKEND="+localURL, "NO_PROXY=localhost,127.0.0.1", "no_proxy=localhost,127.0.0.1", "HTTP_PROXY=", "HTTPS_PROXY=", "ALL_PROXY=")
+	command.Env = append(os.Environ(), "INSPECTION_SMOKE_USER="+username, "INSPECTION_SMOKE_REGISTER="+registrationFlag, "INSPECTION_SMOKE_PASSWORD=unity-test-password", "INSPECTION_SMOKE_BACKEND="+localURL, "NO_PROXY=localhost,127.0.0.1", "no_proxy=localhost,127.0.0.1", "HTTP_PROXY=", "HTTPS_PROXY=", "ALL_PROXY=")
 	err := command.Run()
 	logBytes, _ := os.ReadFile(logPath)
 	if err != nil || !strings.Contains(string(logBytes), "INSPECTION_SMOKE_PASS") {
 		t.Fatalf("Unity integration failed: %v\n%s", err, logBytes)
 	}
 	restored, err := load(path)
-	if err != nil || len(restored.issues) != 1 || restored.issues[0].Reporter == nil || restored.issues[0].Reporter.ID != "unity-test-user" {
+	if err != nil || len(restored.issues) != 1 || restored.issues[0].Reporter == nil || restored.issues[0].Reporter.Username != username {
 		t.Fatal("Unity reporter not persisted", err)
+	}
+}
+
+func TestInspectorRegistration(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := load(filepath.Join(dir, "issues.json"))
+	s.inspectors = &inspectorAuth{path: filepath.Join(dir, "inspectors.json"), sessions: map[string]inspectorSession{}}
+	request := `{"username":" New_User ","displayName":" 新巡检员 ","password":"test-only-password"}`
+	w := inspectorCall(s, "POST", "/api/inspector/register", request, "")
+	if w.Code != 201 || strings.Contains(w.Body.String(), "password") {
+		t.Fatal(w.Code, w.Body)
+	}
+	var user Reporter
+	json.Unmarshal(w.Body.Bytes(), &user)
+	if user.ID == "" || user.Username != "new_user" || user.DisplayName != "新巡检员" {
+		t.Fatal(user)
+	}
+	if w = inspectorCall(s, "POST", "/api/inspector/register", request, ""); w.Code != 409 {
+		t.Fatal("duplicate account accepted")
+	}
+	for _, body := range []string{`{"username":"ab","displayName":"名字","password":"long-password"}`, `{"username":"admin","displayName":"名字","password":"long-password"}`, `{"username":"valid","displayName":" ","password":"long-password"}`, `{"username":"valid","displayName":"名字","password":"short"}`, `{"username":"valid","displayName":"名字","password":"long-password","role":"admin"}`} {
+		if w = inspectorCall(s, "POST", "/api/inspector/register", body, ""); w.Code != 400 {
+			t.Fatal(w.Code, w.Body)
+		}
+	}
+	persisted, err := newInspectorAuth(dir)
+	if err != nil || len(persisted.users) != 1 || persisted.users[0].ID != user.ID {
+		t.Fatal("account not durable", err)
+	}
+	if bcrypt.CompareHashAndPassword([]byte(persisted.users[0].PasswordHash), []byte("test-only-password")) != nil {
+		t.Fatal("password not hashed correctly")
+	}
+	s.inspectors = persisted
+	w = inspectorCall(s, "POST", "/api/inspector/login", `{"username":"NEW_USER","password":"test-only-password"}`, "")
+	if w.Code != 200 {
+		t.Fatal("registered account cannot login after restart", w.Body)
+	}
+	s.inspectors.path = filepath.Join(dir, "missing", "inspectors.json")
+	before := len(s.inspectors.users)
+	w = inspectorCall(s, "POST", "/api/inspector/register", `{"username":"save_failure","displayName":"测试用户","password":"test-only-password"}`, "")
+	if w.Code != 500 || len(s.inspectors.users) != before {
+		t.Fatal("save failure changed account list")
 	}
 }
 

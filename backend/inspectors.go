@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type Reporter struct {
@@ -29,14 +31,17 @@ type inspectorSession struct {
 
 // All access is serialized by Server.mu; tokens are memory-only and never persisted.
 type inspectorAuth struct {
-	users    []inspectorAccount
-	sessions map[string]inspectorSession
-	attempts int
-	window   time.Time
+	users              []inspectorAccount
+	sessions           map[string]inspectorSession
+	attempts           int
+	window             time.Time
+	path               string
+	registrations      int
+	registrationWindow time.Time
 }
 
 func newInspectorAuth(dir string) (*inspectorAuth, error) {
-	a := &inspectorAuth{sessions: map[string]inspectorSession{}}
+	a := &inspectorAuth{sessions: map[string]inspectorSession{}, path: filepath.Join(dir, "inspectors.json")}
 	path := filepath.Join(dir, "inspectors.json")
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -103,6 +108,74 @@ func (a *inspectorAuth) require(w http.ResponseWriter, r *http.Request) *Reporte
 }
 func (a *inspectorAuth) handle(w http.ResponseWriter, r *http.Request) bool {
 	switch r.URL.Path {
+	case "/api/inspector/register":
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method != "POST" {
+			fail(w, 405, "method not allowed")
+			return true
+		}
+		var in struct {
+			Username    string `json:"username"`
+			DisplayName string `json:"displayName"`
+			Password    string `json:"password"`
+		}
+		if err := decode(w, r, &in); err != nil {
+			fail(w, 400, "注册参数不正确")
+			return true
+		}
+		in.Username = strings.ToLower(strings.TrimSpace(in.Username))
+		in.DisplayName = strings.TrimSpace(in.DisplayName)
+		if !regexp.MustCompile(`^[a-z][a-z0-9_]{2,31}$`).MatchString(in.Username) {
+			fail(w, 400, "账号需为3～32位小写字母、数字或下划线，并以字母开头")
+			return true
+		}
+		if in.Username == "admin" {
+			fail(w, 400, "该账号名称不可用于巡检员注册")
+			return true
+		}
+		if utf8.RuneCountInString(in.DisplayName) < 1 || utf8.RuneCountInString(in.DisplayName) > 40 {
+			fail(w, 400, "姓名需为1～40个字符")
+			return true
+		}
+		if utf8.RuneCountInString(in.Password) < 6 || len(in.Password) > 72 {
+			fail(w, 400, "密码至少6个字符，且不超过72字节")
+			return true
+		}
+		now := time.Now()
+		if now.Sub(a.registrationWindow) > time.Minute {
+			a.registrationWindow = now
+			a.registrations = 0
+		}
+		if a.registrations >= 5 {
+			w.Header().Set("Retry-After", "60")
+			fail(w, 429, "注册次数过多，请一分钟后重试")
+			return true
+		}
+		for _, user := range a.users {
+			if strings.EqualFold(user.Username, in.Username) {
+				fail(w, 409, "该账号已注册，请换一个账号或直接登录")
+				return true
+			}
+		}
+		a.registrations++
+		hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), bcrypt.DefaultCost)
+		if err != nil {
+			fail(w, 500, "注册失败，请稍后重试")
+			return true
+		}
+		raw := make([]byte, 16)
+		if _, err = rand.Read(raw); err != nil {
+			fail(w, 500, "无法创建用户编号")
+			return true
+		}
+		user := inspectorAccount{Reporter{"inspector-" + hex.EncodeToString(raw), in.Username, in.DisplayName}, string(hash)}
+		next := append(append([]inspectorAccount{}, a.users...), user)
+		if err = a.saveUsers(next); err != nil {
+			fail(w, 500, "账号保存失败，请检查服务端后重试")
+			return true
+		}
+		reply(w, 201, user.Reporter)
+		return true
 	case "/api/inspector/login":
 		w.Header().Set("Cache-Control", "no-store")
 		if r.Method != "POST" {
@@ -127,7 +200,7 @@ func (a *inspectorAuth) handle(w http.ResponseWriter, r *http.Request) bool {
 			return true
 		}
 		for _, u := range a.users {
-			if u.Username == in.Username && bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(in.Password)) == nil {
+			if strings.EqualFold(u.Username, strings.TrimSpace(in.Username)) && bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(in.Password)) == nil {
 				raw := make([]byte, 32)
 				if _, err := rand.Read(raw); err != nil {
 					fail(w, 500, "登录失败，请重试")
@@ -168,4 +241,33 @@ func (a *inspectorAuth) handle(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	return false
+}
+
+func (a *inspectorAuth) saveUsers(users []inspectorAccount) error {
+	data, err := json.MarshalIndent(users, "", "  ")
+	if err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(filepath.Dir(a.path), "inspectors-*.tmp")
+	if err != nil {
+		return err
+	}
+	name := file.Name()
+	defer os.Remove(name)
+	if _, err = file.Write(data); err != nil {
+		file.Close()
+		return err
+	}
+	if err = file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	if err = file.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(name, a.path); err != nil {
+		return err
+	}
+	a.users = users
+	return nil
 }
