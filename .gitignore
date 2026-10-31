@@ -26,3 +26,6 @@ backend/data/
 backend/*.exe
 *.log
 .DS_Store
+
+# Latest Windows distribution
+windows/
