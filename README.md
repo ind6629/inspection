@@ -17,7 +17,17 @@ start-backend-lan.cmd   局域网后端启动脚本
 start-admin.cmd         管理端启动脚本
 ```
 
-本地最新 Windows 程序在 `windows/Inspection.exe`，已删除登录框下方的说明文字；请保留整个 windows 目录。已有安卓包为 `android/Inspection-Android-1.0.1.apk`。这些构建产物被 Git 忽略，克隆源码不会包含它们；需要自行构建，或使用后续发布的 Release 附件。当前不提供尚未发布的下载链接。
+本地最新 Windows 程序在 `windows/Inspection.exe`，已删除登录框下方的说明文字；请保留整个 windows 目录。已有安卓包为 `android/Inspection-Android-1.0.1.apk`。这些构建产物被 Git 忽略，克隆源码不会包含它们；可自行构建或从下方 Releases 下载。
+
+## 下载程序
+
+发布页：[v1.0.1](https://github.com/ind6629/inspection/releases/tag/v1.0.1)。
+
+- [Windows 完整程序 ZIP](https://github.com/ind6629/inspection/releases/download/v1.0.1/Inspection-Windows-1.0.1.zip)：完整解压后运行 Inspection-Windows/Inspection.exe，勿单独移动 exe。
+- [Android APK](https://github.com/ind6629/inspection/releases/download/v1.0.1/Inspection-Android-1.0.1.apk)：适用于 Android 8.0+、ARM64，演示调试签名。
+- [SHA256 校验文件](https://github.com/ind6629/inspection/releases/download/v1.0.1/SHA256SUMS.txt)。
+
+程序需要连接独立运行的 Go 后端，安装包不会自动启动后端或管理端。手机使用电脑可达的局域网地址。两端账户、问题数据均由同一后端保存。
 
 ## 环境与版本
 
