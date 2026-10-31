@@ -29,3 +29,7 @@ backend/*.exe
 
 # Latest Windows distribution
 windows/
+
+# Demo videos are distributed as Release assets
+*.mp4
+*.MP4

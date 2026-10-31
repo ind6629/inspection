@@ -192,6 +192,8 @@ npm.cmd run build
 
 ## 提交与演示
 
+项目介绍视频：[下载 MP4](https://github.com/ind6629/inspection/releases/download/v1.0.1/project-introduction.mp4)。视频作为 Release 附件保存，不进入源码 Git 历史。该链接用于分享用户提供的视频，本次未审核其是否完整覆盖题目要求的两段演示。
+
 源码应保留完整 Git 历史。Unity 仅提交 Assets（含 .meta）、Packages、ProjectSettings；排除 Library、Temp、Logs、构建目录以及 node_modules、.env 和 backend/data。Windows、APK、演示视频可作为 Release 附件另行发布。
 
 第一段视频展示移动观察、命中标注、表单、取消与上报以及 React 查看；第二段展示状态修改、重启持久化和网络错误处理。每段 3～5 分钟，备选题可使用 Editor 或桌面虚拟场景，无需真实 AR。
